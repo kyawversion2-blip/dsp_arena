@@ -1,0 +1,146 @@
+{
+  "dsp_chart.py": {
+    "mtime": 1786669544.499002,
+    "seen": 1787211586.623092,
+    "ast_hash": "16b2aa28f26e1e9352d9dd8be1a42390",
+    "semantic_hash": ""
+  },
+  "dsp_inverse.py": {
+    "mtime": 1786734818.7806306,
+    "seen": 1787211586.623094,
+    "ast_hash": "f9006fe4b9519c65d8827810372aafcf",
+    "semantic_hash": ""
+  },
+  "fix_bugs.py": {
+    "mtime": 1786631308.8179533,
+    "seen": 1787211586.623096,
+    "ast_hash": "85e904b8d2b50c72624cac8fd21a74d0",
+    "semantic_hash": ""
+  },
+  "fix_bugs2.py": {
+    "mtime": 1786631840.049512,
+    "seen": 1787211586.623096,
+    "ast_hash": "23dc252f88d74e1a752c4ec401493a33",
+    "semantic_hash": ""
+  },
+  "law_cards.py": {
+    "mtime": 1786939269.0253592,
+    "seen": 1787211586.6230972,
+    "ast_hash": "53197f8bc3f55dac80276d011f5ecd77",
+    "semantic_hash": ""
+  },
+  "ref_dsp.py": {
+    "mtime": 1786283475.3000557,
+    "seen": 1787211586.6230972,
+    "ast_hash": "aa9e823c13308cc7429d0d93559fa3c0",
+    "semantic_hash": ""
+  },
+  "relationships.py": {
+    "mtime": 1786695607.8856223,
+    "seen": 1787211586.6230981,
+    "ast_hash": "4e5dfc87be73a896c3b4343dca82ffd9",
+    "semantic_hash": ""
+  },
+  "test_law_cards.py": {
+    "mtime": 1786939383.3656938,
+    "seen": 1787211586.6230981,
+    "ast_hash": "29f0340616ffd7e16d47063cf86f0dca",
+    "semantic_hash": ""
+  },
+  "test_relationships.py": {
+    "mtime": 1786695314.4202635,
+    "seen": 1787211586.6230981,
+    "ast_hash": "22b4d61526f53fbf02c43cf2cd9df354",
+    "semantic_hash": ""
+  },
+  "PROJECT_MEMORY.md": {
+    "mtime": 1787211575.8226197,
+    "seen": 1787211586.6230989,
+    "ast_hash": "86083e1291e9aad6d7802b6600b44534",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1786724985.0076704,
+    "seen": 1787211586.6230989,
+    "ast_hash": "7053005623029d7bcfb0d94361e7c8c8",
+    "semantic_hash": ""
+  },
+  "TV_GAME_VERDICT_SPEC.md": {
+    "mtime": 1786724992.850573,
+    "seen": 1787211586.6230998,
+    "ast_hash": "2f368fe81b375c4178e691451375e9ae",
+    "semantic_hash": ""
+  },
+  "dsp_itzykson_summary_for_project.md": {
+    "mtime": 1786861416.8639188,
+    "seen": 1787211586.6230998,
+    "ast_hash": "ba05ae47b2ad974e59e6bf0c1f830244",
+    "semantic_hash": ""
+  },
+  "dsp_out/run1/report.md": {
+    "mtime": 1786670000.5569224,
+    "seen": 1787211586.6230998,
+    "ast_hash": "f219d80d6eb0e25b2b22607bf5f280ef",
+    "semantic_hash": ""
+  },
+  "dsp_out/run1_opt/report.md": {
+    "mtime": 1787205361.0035293,
+    "seen": 1787211586.623101,
+    "ast_hash": "3443fbf41028eecabdb5990031659143",
+    "semantic_hash": ""
+  },
+  "dsp_out/run3/report.md": {
+    "mtime": 1786670268.6219404,
+    "seen": 1787211586.623101,
+    "ast_hash": "d9e14202bc0c889d7e66d767545c71e0",
+    "semantic_hash": ""
+  },
+  "dsp_out/synth_full_opt/report.md": {
+    "mtime": 1786700316.162237,
+    "seen": 1787211586.623101,
+    "ast_hash": "e7d72d4af29cf1591c25f4dd8da840c9",
+    "semantic_hash": ""
+  },
+  "dsp_out/test_run/report.md": {
+    "mtime": 1786668420.281492,
+    "seen": 1787211586.623102,
+    "ast_hash": "63ca2bce6b49f13d1a31cf02ea321aef",
+    "semantic_hash": ""
+  },
+  "index.html": {
+    "mtime": 1787203444.7536728,
+    "seen": 1787211586.623102,
+    "ast_hash": "fb138db1c9d8c58f89dfcbf39150715e",
+    "semantic_hash": ""
+  },
+  "dsp_out/run1/before_after.png": {
+    "mtime": 1786670001.796497,
+    "seen": 1787211586.623103,
+    "ast_hash": "08e434fec75359f49ad26af144dca475",
+    "semantic_hash": ""
+  },
+  "dsp_out/run1_opt/before_after.png": {
+    "mtime": 1787205361.1472268,
+    "seen": 1787211586.623103,
+    "ast_hash": "f95391a25320f1b1264b692d81db6f39",
+    "semantic_hash": ""
+  },
+  "dsp_out/run3/before_after.png": {
+    "mtime": 1786670269.9613814,
+    "seen": 1787211586.623103,
+    "ast_hash": "256fd9fb9da03c181e4f39162e455763",
+    "semantic_hash": ""
+  },
+  "dsp_out/synth_full_opt/before_after.png": {
+    "mtime": 1786700316.3167725,
+    "seen": 1787211586.623104,
+    "ast_hash": "f2044995172e59e87e9923cae283d57d",
+    "semantic_hash": ""
+  },
+  "dsp_out/test_run/before_after.png": {
+    "mtime": 1786668421.7586846,
+    "seen": 1787211586.623104,
+    "ast_hash": "fe3ada6cf0ee7ecb985b9e56878098e2",
+    "semantic_hash": ""
+  }
+}

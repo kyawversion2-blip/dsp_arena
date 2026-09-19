@@ -1,0 +1,372 @@
+{
+  "mode": "generic",
+  "focus": "AB|CD|AB",
+  "best_params": {
+    "sr": 384000,
+    "n_fft": 1024,
+    "hop_length": 512,
+    "top_db": 19,
+    "window_sec": 0.45
+  },
+  "objective": 2.66318,
+  "best_split": "B|ACD",
+  "best_p": "0.0021",
+  "best_feat": "duration",
+  "silhouette": -0.0392,
+  "fisher_per_feature": {
+    "impact": 0.3651,
+    "duration": 3.4545,
+    "peak_time": 0.9002,
+    "mel_mean_db": 0.1193,
+    "impact_freq_hz": 1.4221
+  },
+  "mahalanobis_pairs": {
+    "AB|CD": {
+      "impact": 0.005,
+      "duration": 0.0656,
+      "peak_time": 0.0401,
+      "mel_mean_db": 0.0156,
+      "impact_freq_hz": 0.0218
+    },
+    "A|D": {
+      "impact": 0.039,
+      "duration": 0.0374,
+      "peak_time": 0.0086,
+      "mel_mean_db": 0.0037,
+      "impact_freq_hz": 0.1118
+    },
+    "B|C": {
+      "impact": 0.0329,
+      "duration": 0.1617,
+      "peak_time": 0.078,
+      "mel_mean_db": 0.0263,
+      "impact_freq_hz": 0.0363
+    },
+    "A|B": {
+      "impact": 0.0202,
+      "duration": 0.1582,
+      "peak_time": 0.0721,
+      "mel_mean_db": 0.0163,
+      "impact_freq_hz": 0.1015
+    },
+    "C|D": {
+      "impact": 0.053,
+      "duration": 0.0368,
+      "peak_time": 0.0155,
+      "mel_mean_db": 0.0221,
+      "impact_freq_hz": 0.0272
+    }
+  },
+  "split_pvalues": {
+    "A|B": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "0.2767",
+      "mel_mean_db": "0.3262",
+      "impact_freq_hz": "0.2427"
+    },
+    "A|C": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.1228"
+    },
+    "A|D": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "0.8845",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.0230"
+    },
+    "B|C": {
+      "impact": "1.0000",
+      "duration": "0.0137",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.8326"
+    },
+    "B|D": {
+      "impact": "1.0000",
+      "duration": "0.0246",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.4319"
+    },
+    "C|D": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "0.7359",
+      "mel_mean_db": "0.3306",
+      "impact_freq_hz": "0.4234"
+    },
+    "A|BC": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "0.6398",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.1210"
+    },
+    "A|BD": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "0.4812",
+      "mel_mean_db": "0.6088",
+      "impact_freq_hz": "0.0495"
+    },
+    "A|CD": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.0333"
+    },
+    "B|AC": {
+      "impact": "0.6752",
+      "duration": "0.0023",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "1.0000"
+    },
+    "B|AD": {
+      "impact": "0.7081",
+      "duration": "0.0031",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "1.0000"
+    },
+    "B|CD": {
+      "impact": "1.0000",
+      "duration": "0.0067",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.5837"
+    },
+    "C|AB": {
+      "impact": "0.5264",
+      "duration": "1.0000",
+      "peak_time": "0.3370",
+      "mel_mean_db": "0.0732",
+      "impact_freq_hz": "1.0000"
+    },
+    "C|AD": {
+      "impact": "0.6329",
+      "duration": "0.9059",
+      "peak_time": "0.7618",
+      "mel_mean_db": "0.2621",
+      "impact_freq_hz": "1.0000"
+    },
+    "C|BD": {
+      "impact": "0.9768",
+      "duration": "1.0000",
+      "peak_time": "0.3107",
+      "mel_mean_db": "0.0763",
+      "impact_freq_hz": "0.7299"
+    },
+    "D|AB": {
+      "impact": "0.4796",
+      "duration": "1.0000",
+      "peak_time": "0.5850",
+      "mel_mean_db": "0.4703",
+      "impact_freq_hz": "1.0000"
+    },
+    "D|AC": {
+      "impact": "0.5929",
+      "duration": "0.5767",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "1.0000"
+    },
+    "D|BC": {
+      "impact": "0.8219",
+      "duration": "1.0000",
+      "peak_time": "0.7412",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "1.0000"
+    },
+    "A|BCD": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "0.6944",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.0482"
+    },
+    "B|ACD": {
+      "impact": "0.8620",
+      "duration": "0.0021",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "1.0000"
+    },
+    "C|ABD": {
+      "impact": "0.6892",
+      "duration": "1.0000",
+      "peak_time": "0.4120",
+      "mel_mean_db": "0.0928",
+      "impact_freq_hz": "1.0000"
+    },
+    "D|ABC": {
+      "impact": "0.6128",
+      "duration": "1.0000",
+      "peak_time": "0.8434",
+      "mel_mean_db": "0.9872",
+      "impact_freq_hz": "1.0000"
+    },
+    "AB|CD": {
+      "impact": "1.0000",
+      "duration": "0.1760",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.1070"
+    },
+    "AC|BD": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "0.2841",
+      "mel_mean_db": "0.1372",
+      "impact_freq_hz": "0.1966"
+    },
+    "AD|BC": {
+      "impact": "1.0000",
+      "duration": "1.0000",
+      "peak_time": "0.6226",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "0.7521"
+    },
+    "BC|AD": {
+      "impact": "0.6040",
+      "duration": "0.0818",
+      "peak_time": "1.0000",
+      "mel_mean_db": "0.9697",
+      "impact_freq_hz": "1.0000"
+    },
+    "BD|AC": {
+      "impact": "0.5576",
+      "duration": "0.0269",
+      "peak_time": "1.0000",
+      "mel_mean_db": "1.0000",
+      "impact_freq_hz": "1.0000"
+    },
+    "CD|AB": {
+      "impact": "0.4202",
+      "duration": "1.0000",
+      "peak_time": "0.3546",
+      "mel_mean_db": "0.1188",
+      "impact_freq_hz": "1.0000"
+    }
+  },
+  "param_importance_oat": [
+    {
+      "param": "sr",
+      "from": 384000,
+      "to": 192000,
+      "objective_before": 2.6632,
+      "objective_after": 1.8468,
+      "delta": -0.8164,
+      "moved_features": [
+        "impact_freq_hz",
+        "mel_mean_db",
+        "impact"
+      ]
+    },
+    {
+      "param": "n_fft",
+      "from": 1024,
+      "to": 512,
+      "objective_before": 2.6632,
+      "objective_after": 2.6654,
+      "delta": 0.0023,
+      "moved_features": [
+        "impact_freq_hz",
+        "mel_mean_db",
+        "impact"
+      ]
+    },
+    {
+      "param": "n_fft",
+      "from": 1024,
+      "to": 2048,
+      "objective_before": 2.6632,
+      "objective_after": 2.6653,
+      "delta": 0.0021,
+      "moved_features": [
+        "impact_freq_hz",
+        "mel_mean_db",
+        "impact"
+      ]
+    },
+    {
+      "param": "hop_length",
+      "from": 512,
+      "to": 256,
+      "objective_before": 2.6632,
+      "objective_after": 2.6632,
+      "delta": 0.0,
+      "moved_features": [
+        "impact",
+        "duration",
+        "peak_time"
+      ]
+    },
+    {
+      "param": "window_sec",
+      "from": 0.45,
+      "to": 0.4,
+      "objective_before": 2.6632,
+      "objective_after": 2.6632,
+      "delta": 0.0,
+      "moved_features": [
+        "impact",
+        "duration",
+        "peak_time"
+      ]
+    },
+    {
+      "param": "hop_length",
+      "from": 512,
+      "to": 1024,
+      "objective_before": 2.6632,
+      "objective_after": 2.6632,
+      "delta": 0.0,
+      "moved_features": [
+        "impact",
+        "duration",
+        "peak_time"
+      ]
+    },
+    {
+      "param": "window_sec",
+      "from": 0.45,
+      "to": 0.5,
+      "objective_before": 2.6632,
+      "objective_after": 2.6632,
+      "delta": 0.0,
+      "moved_features": [
+        "impact",
+        "duration",
+        "peak_time"
+      ]
+    },
+    {
+      "param": "top_db",
+      "from": 19,
+      "to": 18,
+      "objective_before": 2.6632,
+      "objective_after": 2.6632,
+      "delta": 0.0,
+      "moved_features": [
+        "impact",
+        "duration",
+        "peak_time"
+      ]
+    }
+  ],
+  "n_files": 321,
+  "groups": {
+    "A": 67,
+    "B": 79,
+    "C": 96,
+    "D": 79
+  },
+  "elapsed_s": 52.8
+}

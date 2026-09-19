@@ -1,0 +1,14 @@
+{
+  "mode": "generic",
+  "focus": "AB|CD|AB",
+  "params": {
+    "sr": 384000,
+    "n_fft": 4096,
+    "hop_length": 2048,
+    "top_db": 27,
+    "window_sec": 0.45
+  },
+  "trials": 11,
+  "best_value": 3.292289079480558,
+  "seed": 42
+}

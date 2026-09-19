@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "description": "pure-math LAW cards inlined for Delta-Quiz (R1)",
+  "cards": [
+    {
+      "id": "dfft4_gauss",
+      "name": "DFFT⁴=I / Gauss",
+      "value": 14.106735979665885,
+      "tol": 1e-06,
+      "unit": "sqrt(p)",
+      "p": 199,
+      "note": "Gauss sum magnitude |G(p)| = sqrt(p); DFT^4 = identity",
+      "recompute": "gauss_sum_magnitude(p)"
+    },
+    {
+      "id": "talbot_3_2",
+      "name": "Talbot ratio",
+      "value": 1.5,
+      "tol": 1e-09,
+      "unit": "",
+      "exact": "3/2",
+      "note": "time-stretch ratio 3/2"
+    },
+    {
+      "id": "talbot_7_4",
+      "name": "Talbot ratio",
+      "value": 1.75,
+      "tol": 1e-09,
+      "unit": "",
+      "exact": "7/4",
+      "note": "time-stretch ratio 7/4"
+    },
+    {
+      "id": "talbot_5_4",
+      "name": "Talbot ratio",
+      "value": 1.25,
+      "tol": 1e-09,
+      "unit": "",
+      "exact": "5/4",
+      "note": "time-stretch ratio 5/4"
+    },
+    {
+      "id": "tri_forms",
+      "name": "Triangular tilings 3->forms",
+      "value": 3,
+      "tol": 1e-09,
+      "unit": "count",
+      "forms": [
+        "A2",
+        "B3",
+        "G2"
+      ],
+      "vertex_angle_sum": 180.0,
+      "note": "3 triangles -> {A2,B3,G2}; vertex angle sum 180 deg"
+    },
+    {
+      "id": "tilings_forbidden",
+      "name": "Tilings {5,8,10,12} N forbidden",
+      "value": 7,
+      "tol": 1e-09,
+      "unit": "",
+      "tilings": {
+        "5": 7,
+        "8": 7,
+        "10": 7,
+        "12": 7
+      },
+      "note": "N=7 color forbidden for each of {5,8,10,12}"
+    },
+    {
+      "id": "beta_nonpisot",
+      "name": "non-Pisot beta",
+      "value": 0.251574,
+      "tol": 1e-06,
+      "unit": "",
+      "note": "non-Pisot -> singular-continuous spectrum; Luck Eq.(73): beta=ln(3-tau)/ln(2+tau)",
+      "recompute": "nice_beta()"
+    },
+    {
+      "id": "kontsevich_sum",
+      "name": "Kontsevich genus-3 sum",
+      "value": 1.8928571428571428,
+      "tol": 1e-06,
+      "unit": "",
+      "exact": "53/28",
+      "note": "summed intersection / Harer-Zagier number = 53/28"
+    },
+    {
+      "id": "kontsevich_lambda_1_3",
+      "name": "Kontsevich lambda 1/3",
+      "value": 0.3333333333333333,
+      "tol": 1e-09,
+      "unit": "",
+      "note": "irregular conformal type 1/3"
+    },
+    {
+      "id": "kontsevich_lambda_1_2",
+      "name": "Kontsevich lambda 1/2",
+      "value": 0.5,
+      "tol": 1e-09,
+      "unit": "",
+      "note": "irregular conformal type 1/2"
+    }
+  ],
+  "verify": {
+    "all_pass": true,
+    "cards_checked": 10,
+    "command": "python law_cards.py --verify"
+  }
+}

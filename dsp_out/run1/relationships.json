@@ -1,0 +1,163 @@
+{
+  "schema_version": 2,
+  "run_id": "run1",
+  "timestamp": "2026-08-20T18:33:08Z",
+  "scale_version": "v1",
+  "theta": {
+    "sr": 44100,
+    "n_fft": 4096,
+    "hop_length": 1024,
+    "top_db": 35,
+    "window_sec": 0.5
+  },
+  "scaler": {
+    "features": [
+      "impact",
+      "duration",
+      "peak_time",
+      "mel_mean_db",
+      "impact_freq_hz"
+    ],
+    "method": "pooled_zscore",
+    "mean": [
+      0.4556375738206167,
+      0.46856945062552563,
+      0.2555280055947614,
+      25.560465534196258,
+      1826.4769470404976
+    ],
+    "std": [
+      0.08526575269935846,
+      0.2718564137306351,
+      0.16014888524060913,
+      5.857017152566743,
+      1367.370011931445
+    ],
+    "ddof": 1,
+    "n_samples": 321
+  },
+  "centroids": {
+    "A": [
+      -0.8120456315520092,
+      -0.6630522755231487,
+      -0.1094198715216887,
+      -1.289731672315243,
+      0.6108366516290434
+    ],
+    "B": [
+      -0.09868883666693347,
+      -0.495785994905791,
+      -0.3223736385041067,
+      -0.15961495100950687,
+      0.7528123653271338
+    ],
+    "C": [
+      -0.4010795791691238,
+      -0.14771309479796177,
+      -0.1094198715216887,
+      0.15833897752685197,
+      0.6869925804739668
+    ],
+    "D": [
+      -0.5550842269076465,
+      -0.12673530079433867,
+      0.8692612703549557,
+      -0.5521686630904964,
+      0.4088918006202899
+    ]
+  },
+  "distance_matrix": {
+    "AB": 0.6131111056516891,
+    "AC": 0.7123448462414843,
+    "AD": 0.6158348404807332,
+    "BC": 0.2695815856331155,
+    "BD": 0.6382583637940833,
+    "CD": 0.5593094721104143
+  },
+  "tau": {
+    "tau_similar": 0.4,
+    "tau_different": 1.0,
+    "alpha": 0.5,
+    "tau_abs_max": 0.5
+  },
+  "relationships": [
+    {
+      "pair": "AB",
+      "type": "neutral",
+      "d_baseline": 0.613111,
+      "source": "auto",
+      "d_after": 0.613111
+    },
+    {
+      "pair": "AC",
+      "type": "neutral",
+      "d_baseline": 0.712345,
+      "source": "auto",
+      "d_after": 0.712345
+    },
+    {
+      "pair": "AD",
+      "type": "neutral",
+      "d_baseline": 0.615835,
+      "source": "auto",
+      "d_after": 0.615835
+    },
+    {
+      "pair": "BC",
+      "type": "attract",
+      "d_baseline": 0.269582,
+      "tau_gh": 0.134791,
+      "weight": 1.0,
+      "source": "auto",
+      "d_after": 0.269582
+    },
+    {
+      "pair": "BD",
+      "type": "neutral",
+      "d_baseline": 0.638258,
+      "source": "auto",
+      "d_after": 0.638258
+    },
+    {
+      "pair": "CD",
+      "type": "neutral",
+      "d_baseline": 0.559309,
+      "source": "auto",
+      "d_after": 0.559309
+    }
+  ],
+  "collapse_guard": {
+    "strategy": "v_min_regularization",
+    "V_min": 0.01,
+    "lambda_vmin": 1000.0,
+    "guard_formula": "normalized_hinge_v1",
+    "suggestion_time_pruning": true,
+    "removed_edges": [],
+    "anchor": {
+      "group": null,
+      "enabled": false
+    }
+  },
+  "replay": {
+    "wavdir_manifest_hash": "0256846376afe2c4dc9c58588f89185d3f52ec1ffadda12ff80af8dad82a3fd6",
+    "features_csv_sha256": "66a67c1a98eaba3a67da3471a6fee290bdb915e6cafef990e9944ed04b7fa7da",
+    "pipeline_code_hash": "git:unknown",
+    "stft_config": {
+      "n_fft": 4096,
+      "hop_length": 1024,
+      "window": "hann",
+      "n_mels": 40
+    },
+    "env": {
+      "python": "3.9.6",
+      "numpy": "2.0.2"
+    }
+  },
+  "provenance": {
+    "prior_run_id": null,
+    "prior_sha": null,
+    "merged_manual": 0,
+    "re_inferred_auto": 6
+  },
+  "frozen": true
+}

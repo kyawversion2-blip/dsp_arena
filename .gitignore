@@ -1,0 +1,79 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.uv-venv/
+
+# Testing & Type Checking
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Audio / Local Run Data
+wavs/*.wav
+!wavs/.gitkeep
+dsp_out/**/.DS_Store
+graphify-out/cache/
+
+# Backup files
+*.bak
+*.bak*
+*~
+*.swp
+*.swo
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Icon
+Thumbs.db
+
+# IDE workspace files to exclude (keep settings/launch, ignore local user workspace cache)
+.vscode/*.log
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Agent / Tool local scratch caches
+.omo/
+.kilo/worktrees/
+.claude/settings.local.json
+
+# GSD session-specific files
+.gsd/STATE.md
+.gsd/JOURNAL.md
+.gsd/TODO.md
