@@ -218,7 +218,7 @@ async def _dsp_worker(manager: "_ConnectionManager") -> None:
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
         if features is None:
-            log.debug("auto-trigger: no transient detected in window")
+            log.info("auto-trigger: signal rejected (duration > 1.0s limit, or below 1kHz, or no impact detected)")
             continue
 
         pt_s = float(features.get("peak_time", 0.0))

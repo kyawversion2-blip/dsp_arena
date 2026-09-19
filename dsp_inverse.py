@@ -165,22 +165,23 @@ def max_rms_frame(y, fl=2048, fh=512):
 
 
 def detect_transient_window(audio, sr, freq_threshold_hz=1000.0,
-max_duration_s=2.0, ff_s=0.5, rr_s=0.5,
+                             max_duration_s=1.0, ff_s=0.5, rr_s=0.5,
                              env_threshold_ratio=0.20):
-    """Detect → center → FF/RR windowing (mirrors manual_stop_interactive_recorder.py).
+    """Detect → center → FF/RR windowing (mirrors manual_stop_interactive_recorder(1).py).
 
     1) High-pass filter above freq_threshold_hz (default 1000 Hz).
-    2) Hilbert envelope + threshold (20% of peak) → contiguous region.
-    3) If detected span > max_duration_s → fall back to peak-centered max_duration_s window.
+    2) Hilbert envelope + threshold (20% of peak) → contiguous transient region.
+    3) STRICT PHYSICAL CEILING: True acoustic impact transient is < 0.5s and NEVER > 1.0s.
+       If detected span > max_duration_s (1.0s) -> REJECT immediately (returns None).
     4) Center = midpoint of detected region.
-    5) Cut FF = ff_s seconds BEFORE center + RR = rr_s seconds AFTER center.
+    5) Cut FF = ff_s (0.5s) BEFORE center + RR = rr_s (0.5s) AFTER center -> 1.0s total window.
 
     Returns (windowed_audio, center_sample, onset_sample, offset_sample, detected_duration_s).
     """
     import scipy.signal as _sig
     n = len(audio)
     if n == 0:
-        return audio, 0, 0, 0, 0.0
+        return None, 0, 0, 0, 0.0
     # 1) high-pass filter
     nyq = sr / 2.0
     hp_norm = min(max(freq_threshold_hz / nyq, 1e-4), 0.99)
@@ -210,15 +211,12 @@ max_duration_s=2.0, ff_s=0.5, rr_s=0.5,
         else:
             onset_idx, offset_idx = int(above[0]), int(above[-1])
     detected_duration_s = (offset_idx - onset_idx) / sr
-    # 3) reject too long → re-center on envelope peak
+    # 3) STRICT PHYSICAL CEILING: reject signals > 1.0s
     if detected_duration_s > max_duration_s:
-        peak_idx = int(np.argmax(envelope))
-        onset_idx = max(0, peak_idx - int(sr * max_duration_s / 2))
-        offset_idx = min(n, peak_idx + int(sr * max_duration_s / 2))
-        detected_duration_s = (offset_idx - onset_idx) / sr
+        return None, -1, onset_idx, offset_idx, detected_duration_s
     # 4) center
     center_idx = (onset_idx + offset_idx) // 2
-    # 5) FF + RR window
+    # 5) FF + RR window (exact 1.0s centered window)
     start = max(0, center_idx - int(sr * ff_s))
     end = min(n, center_idx + int(sr * rr_s))
     return audio[start:end], center_idx, onset_idx, offset_idx, detected_duration_s
@@ -226,7 +224,7 @@ max_duration_s=2.0, ff_s=0.5, rr_s=0.5,
 
 def measure_features(y, sr, nfft, hop, top_db, win):
     """Return feature dict or None.
-    Detects a >1kHz transient (max 2.0s), centers a ±0.5s window,
+    Detects a >1kHz transient (ceiling 1.0s, impact is <0.5s), centers a ±0.5s window,
     then measures:
       - duration: RMS envelope decay (peak → 10%) from the full signal,
                   anchored to the detected transient region.
@@ -239,8 +237,8 @@ def measure_features(y, sr, nfft, hop, top_db, win):
     # --- event detection: high-pass 1kHz, Hilbert envelope, center, FF=0.5s RR=0.5s ---
     y_win, center_idx, detect_onset, detect_offset, detect_dur = \
         detect_transient_window(y, sr, freq_threshold_hz=1000.0,
-                                max_duration_s=2.0, ff_s=0.5, rr_s=0.5)
-    if len(y_win) < max(64, int(round(sr * 0.01))):
+                                max_duration_s=1.0, ff_s=0.5, rr_s=0.5)
+    if y_win is None or detect_dur > 1.0 or len(y_win) < max(64, int(round(sr * 0.01))):
         return None
     fl, fh = 2048, 512
     # --- top_db trim within the windowed segment (for mel/spectral features) ---

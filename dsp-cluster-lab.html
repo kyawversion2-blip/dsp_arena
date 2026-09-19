@@ -1669,21 +1669,24 @@ function drawFullWaveformView(dt){
 
   // 8. Top Oscilloscope Telemetry Panel
   const bannerY = oy - 24;
-  ctx.font = '700 11px var(--fd)';
+  ctx.font = '700 10.5px var(--fd)';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillText('EVENT DEFINITION: 1 kHz High-Pass · Transient < 0.5s · Window 1.0s Centered (FF=0.5s, RR=0.5s) · Reject > 1.0s', ox, bannerY - 14);
+
   ctx.fillStyle = '#3ae3ff';
   ctx.fillText('CH1: TIME-DOMAIN TRANSIENT [x(t)]', ox, bannerY);
 
   ctx.fillStyle = '#f59e0b';
-  ctx.fillText('CH2: LAPLACE DECAY ENVELOPE [±Ae^(-σt)]', ox + 260, bannerY);
+  ctx.fillText('CH2: LAPLACE DECAY ENVELOPE [±Ae^(-σt)]', ox + 240, bannerY);
 
   ctx.fillStyle = 'rgba(167, 139, 250, 0.85)';
   ctx.font = '500 10px var(--fm)';
-  ctx.fillText(`[ ${sourceLabel} ]`, ox + 550, bannerY);
+  ctx.fillText(`[ ${sourceLabel} ]`, ox + 520, bannerY);
 
   // 9. Quantitative Physics Card (Right/Top inner overlay)
-  const cardW = 260, cardH = 92;
+  const cardW = 260, cardH = 112;
   const cardX = ox + ow - cardW - 12;
   const cardY = oy + 12;
   ctx.fillStyle = 'rgba(4, 10, 22, 0.88)';
@@ -1710,11 +1713,13 @@ function drawFullWaveformView(dt){
   drawStat('σ (Laplace):', selSg.toFixed(2) + ' rad/s', cardX + 10, cardY + 36, '#f59e0b');
   drawStat('τ (Decay):', tau.toFixed(2) + ' ms', cardX + 10, cardY + 56, '#fbbf24');
   drawStat('Peak tp:', selTp.toFixed(2) + ' ms', cardX + 10, cardY + 76, '#ec4899');
+  drawStat('HP Cutoff:', '≥ 1000 Hz', cardX + 10, cardY + 96, '#22d3ee');
 
   drawStat('Impact A:', selE.toFixed(3), cardX + 135, cardY + 16, '#34d399');
   drawStat('Q Factor:', Q_factor.toFixed(1), cardX + 135, cardY + 36, '#a78bfa');
   drawStat('Damping ζ:', zeta.toFixed(5), cardX + 135, cardY + 56, '#60a5fa');
   drawStat('PCM Mode:', hasRealPCM ? 'LIVE PCM' : 'LAPLACE', cardX + 135, cardY + 76, hasRealPCM ? '#34d399' : '#94a3b8');
+  drawStat('Max Limit:', '≤ 1.00 s', cardX + 135, cardY + 96, '#f43f5e');
 }
 
 let lastT=performance.now(), fpsN=0, fpsT=lastT, msEMA=6, domT=0, hudLine='';
@@ -2281,10 +2286,29 @@ function ingestMessage(m){
   const f=numOr(p.frequency??p.freq_hz??p.freq??p.f0??p.peak_frequency??p.peak_freq??p.dominant_frequency);
   let sg=numOr(p.laplace_sigma??p.sigma??p.decay_rate??p.decay_sigma??p.damping);
   if(f===null||f<=0||sg===null){WSS.badCount++;return}
+
+  // ── Physical Event Rules Enforcement ──
+  // Rule 1: Strict Physical Duration Ceiling: Acoustic impact is < 0.5s (500ms) and NEVER > 1.0s.
+  // Any continuous sound, background speech, or noise > 1.0s MUST BE REJECTED.
+  const durS = numOr(p.duration_s ?? p.detect_duration_s ?? (p.duration_ms ? p.duration_ms / 1000.0 : null));
+  if (durS !== null && durS > 1.0) {
+    WSS.badCount++;
+    console.warn(`[EVENT REJECTED] Transient duration ${durS.toFixed(3)}s exceeds 1.0s physical limit (acoustic impact is < 0.5s). Continuous noise rejected.`);
+    wsChip('bad', `REJECTED · >1.0s (${durS.toFixed(2)}s)`);
+    return;
+  }
+
   const Eraw=numOr(p.energy??p.rms??p.impact??p.amplitude??p.e_rms);
   let tp=numOr(p.peak_time_ms??p.peak_time??p.tp??p.t_peak??p.duration_ms??p.duration);
   if(tp===null)tp=(WSS.evCount*97)%T_WIN;       /* deterministic spread when field absent */
   else if(tp<5)tp*=1000;                        /* seconds → ms heuristic */
+
+  if(tp > 1000.0){
+    WSS.badCount++;
+    console.warn(`[EVENT REJECTED] Transient onset/peak ${tp.toFixed(1)}ms > 1000ms limit.`);
+    wsChip('bad', `REJECTED · tp > 1000ms`);
+    return;
+  }
   sg=clamp(Math.abs(sg),1.2,SIG_MAX-0.5);
   let E=0.5;                                    /* adaptive normalisation — no static full-scale (G6 spirit) */
   if(Eraw!==null){const a=Math.abs(Eraw); WSS.eMax=Math.max(a,WSS.eMax*0.995); E=clamp(a/WSS.eMax,0.06,1)}

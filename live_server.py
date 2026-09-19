@@ -457,7 +457,12 @@ async def compute(
         hfsr = float(raw_feats.get("high_freq_ratio", 0.0))
         sigma = float(raw_feats.get("laplace_sigma", 0.0))
         dur_s = float(raw_feats.get("duration_s", 0.0))
+        det_dur = float(raw_feats.get("detect_duration_s", 0.0))
         centroid = float(raw_feats.get("centroid_hz", 0.0))
+
+        # STRICT PHYSICAL CEILING: transient must not exceed 1.0s limit
+        if det_dur > 1.0 or dur_s > 1.0:
+            raise HTTPException(422, f"Signal rejected: transient duration ({max(det_dur, dur_s):.3f}s) > 1.0s ceiling. Acoustic impacts are < 0.5s.")
 
         # RAG memory match check
         rag_match_info = {"matched": False, "group": None, "score": 0.0, "characteristics": ""}
@@ -516,7 +521,7 @@ async def compute(
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
         if features is None:
-            raise HTTPException(422, "No transient detected - signal too short or quiet after trim.")
+            raise HTTPException(422, "Signal rejected: transient duration > 1.0s limit, or frequency < 1kHz, or no transient detected.")
 
         payload = _build_response(
             features,

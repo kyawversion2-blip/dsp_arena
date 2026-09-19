@@ -114,6 +114,13 @@ async def emit_event(
                 "All paths must go through _build_response() or mic_loop payload builder."
             )
 
+    # Physical Rule: Acoustic impact transient is < 0.5s and MUST NEVER exceed 1.0s.
+    # Continuous noise, speech, or runaway ringing > 1.0s MUST BE REJECTED.
+    dur_val = float(payload.get("duration_s") or payload.get("duration") or payload.get("detect_duration_s") or 0.0)
+    if dur_val > 1.0:
+        log.warning("emit_event: REJECTED event with duration %.3fs > 1.0s physical limit (source=%s)", dur_val, source)
+        raise ValueError(f"emit_event rejected: transient duration {dur_val:.3f}s exceeds 1.0s physical limit (impacts are < 0.5s)")
+
     event_id = str(uuid.uuid4())
     now = time.time()
 
