@@ -425,13 +425,15 @@ def main():
         print(f"❌ No WAV files found in: {WAV_ROOT}")
         return
 
-    # Support optional CLI args (e.g., --range 197-214 or 197.wav 198.wav)
+    # Support optional CLI args (e.g., --range 192-214 or 192.wav)
+    range_tag = None
     if len(sys.argv) > 1:
         custom_targets = set()
         for arg in sys.argv[1:]:
             if "-" in arg and not arg.startswith("--"):
                 try:
                     s_str, e_str = arg.split("-")
+                    range_tag = f"{s_str}_to_{e_str}"
                     custom_targets.update([f"{i}.wav" for i in range(int(s_str), int(e_str) + 1)])
                 except Exception:
                     pass
@@ -521,11 +523,18 @@ def main():
         os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
         df.to_csv(OUTPUT_CSV, index=False)
 
+        dedicated_csv = None
+        if range_tag:
+            dedicated_csv = os.path.join(os.path.dirname(OUTPUT_CSV), f"event_centric_impact_results_{range_tag}.csv")
+            df.to_csv(dedicated_csv, index=False)
+
         print("\n" + "=" * 80)
         print(" 🎉 COMPLETE! Event-Centric Impact Extraction finished.")
         print(f" Total Files   : {len(wav_files)}")
         print(f" Total Impacts : {len(df):,}")
         print(f" Output CSV    : {OUTPUT_CSV}")
+        if dedicated_csv:
+            print(f" Dedicated CSV : {dedicated_csv}")
         print("=" * 80)
 
         # Print quick summary
