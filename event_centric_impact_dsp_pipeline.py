@@ -55,17 +55,17 @@ HIGH_FREQ_LP = 20000.0
 # Physical Duration Ceiling
 MAX_PHYSICAL_DURATION_S = 1.0  # > 1.0s rejected as ambient noise
 
-# Impact Detector Settings
-SMOOTH_MS = 2.0
-MIN_DISTANCE_MS = 12.0
-PROMINENCE_RATIO = 0.035
-HEIGHT_RATIO = 0.025
-MERGE_MS = 10.0
-MAX_EVENTS_PER_FILE = 80
+# Impact Detector Settings (Calibrated for Physical Macro Impacts)
+SMOOTH_MS = 20.0          # 20ms envelope smoothing removes sub-carrier wave oscillations
+MIN_DISTANCE_MS = 60.0    # 60ms min interval prevents intra-burst decay cycle over-triggering
+PROMINENCE_RATIO = 0.15   # 15% prominence isolates distinct physical bounces/strikes
+HEIGHT_RATIO = 0.10       # 10% height floor eliminates quiet ambient noise
+MERGE_MS = 25.0
+MAX_EVENTS_PER_FILE = 20  # Physical bounce ceiling
 
 # Impact Extraction Segment Window (centered around peak)
-PRE_MS = 8.0     # 8ms attack lead
-POST_MS = 120.0  # 120ms decay tail
+PRE_MS = 10.0    # 10ms attack lead
+POST_MS = 80.0   # 80ms decay tail (prevents overlapping into next bounce)
 
 # Ruler Calibration Boundaries
 SIGMA_SPLIT = 25.0
