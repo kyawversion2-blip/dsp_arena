@@ -209,10 +209,11 @@ input[type=range]:focus-visible{outline:1px solid rgba(58,227,255,.5); outline-o
 .frm .lv{font:600 11px var(--fm); font-style:normal; color:var(--acc,var(--cyan));
   text-shadow:0 0 9px var(--accg,rgba(58,227,255,.45)); padding:0 1px}
 .frm .cm{font:400 9px var(--fm); font-style:normal; color:var(--ink-faint)}
-.sepbar{height:5px; border-radius:3px; background:rgba(140,170,255,.1); margin-top:6px; overflow:hidden}
+.sepbar{height:6px; border-radius:3px; background:rgba(140,170,255,.1); margin-top:6px; position:relative; overflow:visible}
 .sepbar i{display:block; height:100%; width:50%; border-radius:3px;
   background:linear-gradient(90deg,var(--cyan-d),var(--cyan),#b6f2ff);
   box-shadow:0 0 10px rgba(58,227,255,.7); transition:width .35s cubic-bezier(.3,1,.4,1)}
+.sep-null-mark{position:absolute; top:-3px; bottom:-3px; width:2px; background:#f97316; z-index:3; display:none; box-shadow:0 0 6px rgba(249,115,22,0.8);}
 
 /* ─────────────────────────── inspector ─────────────────────────── */
 .igrid{display:grid; grid-template-columns:repeat(3,1fr); gap:5px; margin-bottom:8px}
@@ -291,6 +292,8 @@ canvas.mini{width:100%; border:1px solid var(--line-soft); border-radius:8px; ba
   <button class="tgl on" id="hd-orbit" type="button" aria-pressed="true"><span class="dot"></span>AUTO&nbsp;ORBIT</button>
   <button class="tgl on" id="hd-audio" type="button" aria-pressed="true" title="Toggle Real-Time Web Audio Synthesizer"><span class="dot"></span>🔊&nbsp;<span id="hd-audio-txt">AUDIO</span></button>
   <button class="tgl" id="bt-ai-mood" type="button" title="Configure Multi-Provider AI Key &amp; Acoustic Moods" style="border-color:rgba(167,139,250,0.5);"><span class="dot" style="background:#a78bfa"></span>🤖&nbsp;<span id="ai-mood-txt">AI&nbsp;MOOD</span></button>
+  <a href="/scout" target="_blank" class="tgl" style="text-decoration:none; display:inline-flex; align-items:center; border-color:rgba(56,189,248,0.5); color:inherit;" title="Open 4-Class to 2-Group Binary Partition Scout"><span class="dot" style="background:#38bdf8"></span>🔬&nbsp;PARTITION&nbsp;SCOUT</a>
+  <label class="tgl" style="cursor:pointer; display:inline-flex; align-items:center; border-color:rgba(52,211,153,0.5); color:inherit;" title="Load Real Feature CSV (Colab / Recorder / Event-Centric)"><span class="dot" style="background:#34d399"></span>📂&nbsp;LOAD&nbsp;CSV<input type="file" id="hud-csv-file" accept=".csv" style="display:none;" onchange="loadClusterLabCSV(event)"></label>
 
   <div class="stats">
     <span><b id="st-fps">—</b> <span class="u">FPS</span></span>
@@ -472,7 +475,18 @@ canvas.mini{width:100%; border:1px solid var(--line-soft); border-radius:8px; ba
       <div class="fcard acc-m">
         <div class="fk"><span>SEPARATION INDEX</span><em>live · normalized ℝ³</em></div>
         <div class="frm">S <span class="op">=</span> d̄<sub>inter</sub> <span class="op">/</span> (d̄<sub>inter</sub> + 2·d̄<sub>intra</sub>) <span class="op">=</span> <span class="lv" id="fm-sep">—</span></div>
-        <div class="sepbar"><i id="sepbar"></i></div>
+        <div class="sepbar">
+          <i id="sepbar"></i>
+          <span id="sep-null-line" class="sep-null-mark" title="95th percentile null noise floor (orange)"></span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-top:5px; font:400 9px var(--fm); color:var(--ink-faint);">
+          <span>p-val: <b id="fm-sep-p" style="color:var(--ink);">—</b></span>
+          <span>noise floor: <b id="fm-sep-null" style="color:#f97316;">—</b></span>
+        </div>
+        <div style="margin-top:4px; font:500 9.5px var(--fm); color:var(--ink-dim); display:flex; justify-content:space-between; align-items:center;">
+          <span>PARTITION:</span>
+          <span id="fm-top-part" style="color:var(--cyan); font-weight:600;">—</span>
+        </div>
       </div>
 
       <div class="fcard acc-c">
@@ -2393,6 +2407,211 @@ legendSync(); formulaSync(); updateInspector(); drawSPlane();
   }
 })();
 requestAnimationFrame(frame);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SEPARATION NULL + BINARY PARTITION PATCH  ·  dsp-cluster-lab
+   Paste this block immediately before the closing </script> tag.
+   Touches nothing in the render hot path. No new dependencies.
+
+   Fixes three things:
+     1. sepCompute() was running every frame (`if(sepDirty||true)`). Now cached.
+     2. S had no null baseline. Pure noise reads S≈0.27 at N=20 and S≈0.07 at
+        N=340 — the same number means opposite things at different n.
+     3. Adds the 2-of-4 search: all 7 ways to cut A/B/C/D into two groups,
+        each with its own permutation p-value.
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+const NPERM = 400;          // permutations per partition
+const CHUNK = 12;           // permutations per idle slice (keeps the M4 cool)
+
+/* ── generic S over an arbitrary label vector ─────────────────────────────── */
+function sIndex(lab, k){
+  const sx=new Float64Array(k), sy=new Float64Array(k),
+        sz=new Float64Array(k), n=new Int32Array(k);
+  for(let i=0;i<N;i++){
+    const c=lab[i]; if(c<0||c>=k||outF[i])continue;
+    sx[c]+=nXa[i]; sy[c]+=nYa[i]; sz[c]+=nZa[i]; n[c]++;
+  }
+  let live=0; for(let c=0;c<k;c++) if(n[c]>1) live++;
+  if(live<2) return 0;
+  for(let c=0;c<k;c++) if(n[c]){ sx[c]/=n[c]; sy[c]/=n[c]; sz[c]/=n[c] }
+
+  let intra=0, ni=0;
+  for(let i=0;i<N;i++){
+    const c=lab[i]; if(c<0||c>=k||outF[i]||!n[c])continue;
+    const dx=nXa[i]-sx[c], dy=nYa[i]-sy[c], dz=nZa[i]-sz[c];
+    intra+=Math.sqrt(dx*dx+dy*dy+dz*dz); ni++;
+  }
+  intra = ni ? intra/ni : 0;
+
+  let inter=0, np=0;
+  for(let a=0;a<k;a++) for(let b=a+1;b<k;b++){
+    if(n[a]<2||n[b]<2)continue;
+    const dx=sx[a]-sx[b], dy=sy[a]-sy[b], dz=sz[a]-sz[b];
+    inter+=Math.sqrt(dx*dx+dy*dy+dz*dz); np++;
+  }
+  inter = np ? inter/np : 0;
+  return inter/(inter+2*intra+1e-9);
+}
+
+/* ── the 7 non-trivial bipartitions of {A,B,C,D} ──────────────────────────── */
+const PARTS=[];
+for(let m=1;m<8;m++){
+  const g1=[],g0=[];
+  for(let b=0;b<4;b++) ((m>>b)&1 ? g1 : g0).push(b);
+  PARTS.push({mask:m,g1,g0,
+    name:g1.map(c=>CL[c].nm).join('')+'|'+g0.map(c=>CL[c].nm).join(''),
+    balanced:g1.length===2});
+}
+PARTS.sort((a,b)=>(b.balanced-a.balanced)||a.name.localeCompare(b.name));
+
+/* ── state ────────────────────────────────────────────────────────────────── */
+const R = PARTS.map(p=>({p,S:0,nul:0,p95:0,pv:1,ready:false}));
+let R4 = {S:0,nul:0,p95:0,pv:1,ready:false};
+let busy=false, queued=false;
+const labBuf  = new Int8Array(N_MAX);
+const permBuf = new Int8Array(N_MAX);
+
+function binLabels(part,out){
+  for(let i=0;i<N;i++){
+    const c=dCl[i];
+    out[i] = c>3 ? -1 : (part.g1.includes(c) ? 1 : 0);
+  }
+}
+
+/* shuffle only the classified, in-band points — keeps n per group intact */
+function shuffleInPlace(src,dst){
+  const idx=[];
+  for(let i=0;i<N;i++){ dst[i]=src[i]; if(src[i]>=0&&!outF[i]) idx.push(i) }
+  for(let i=idx.length-1;i>0;i--){
+    const j=(Math.random()*(i+1))|0;
+    const t=dst[idx[i]]; dst[idx[i]]=dst[idx[j]]; dst[idx[j]]=t;
+  }
+}
+
+/* ── chunked recompute, yields to the frame loop between slices ───────────── */
+function recompute(){
+  if(busy){ queued=true; return }
+  busy=true;
+
+  /* observed values first — these are cheap */
+  for(let i=0;i<N;i++) labBuf[i]=dCl[i]>3?-1:dCl[i];
+  R4.S = sIndex(labBuf,4);
+  R.forEach(r=>{ binLabels(r.p,labBuf); r.S = sIndex(labBuf,2) });
+
+  /* null distributions */
+  const nulls = R.map(()=>[]);
+  const null4 = [];
+  let done=0;
+
+  function slice(){
+    const end=Math.min(done+CHUNK,NPERM);
+    for(;done<end;done++){
+      for(let i=0;i<N;i++) labBuf[i]=dCl[i]>3?-1:dCl[i];
+      shuffleInPlace(labBuf,permBuf);
+      null4.push(sIndex(permBuf,4));
+      for(let k=0;k<R.length;k++){
+        const part=R[k].p;
+        for(let i=0;i<N;i++){
+          const c=permBuf[i];
+          labBuf[i] = c<0 ? -1 : (part.g1.includes(c)?1:0);
+        }
+        nulls[k].push(sIndex(labBuf,2));
+      }
+    }
+    if(done<NPERM){ (window.requestIdleCallback||setTimeout)(slice,0); return }
+
+    const q=(a,p)=>{const b=[...a].sort((x,y)=>x-y);return b[Math.min(b.length-1,Math.floor(b.length*p))]};
+    const mn=a=>a.reduce((s,v)=>s+v,0)/a.length;
+
+    R4.nul=mn(null4); R4.p95=q(null4,.95);
+    R4.pv=(null4.filter(v=>v>=R4.S).length+1)/(NPERM+1); R4.ready=true;
+
+    R.forEach((r,k)=>{
+      r.nul=mn(nulls[k]); r.p95=q(nulls[k],.95);
+      r.pv=(nulls[k].filter(v=>v>=r.S).length+1)/(NPERM+1); r.ready=true;
+    });
+
+    busy=false; paint();
+    if(queued){ queued=false; recompute() }
+  }
+  slice();
+}
+
+/* ── UI ───────────────────────────────────────────────────────────────────── */
+const host=document.createElement('div');
+host.className='fcard acc-m';
+host.innerHTML=
+ `<div class="fk"><span>PARTITION SEARCH</span><em id="ps-state">idle</em></div>
+  <div class="frm" style="margin-bottom:6px">
+    S<sub>4</sub> <span class="op">=</span> <span class="lv" id="ps-s4">—</span>
+    <span class="op" style="opacity:.5">vs noise</span> <span id="ps-n4" style="opacity:.55">—</span>
+    <span id="ps-p4"></span>
+  </div>
+  <div id="ps-rows" style="font:400 10.5px var(--fm,monospace); line-height:1.75"></div>
+  <div style="margin-top:7px;font:400 9.5px var(--fm,monospace);opacity:.45;line-height:1.5">
+    excess = (S − S<sub>null</sub>)/(1 − S<sub>null</sub>) · p from ${NPERM} label shuffles
+  </div>`;
+
+function bar(v,nul,w=54){
+  const a=Math.min(1,Math.max(0,v)), b=Math.min(1,Math.max(0,nul));
+  return `<span style="display:inline-block;position:relative;width:${w}px;height:5px;
+    background:rgba(140,170,255,.10);border-radius:3px;vertical-align:middle;margin:0 6px">
+    <i style="position:absolute;left:0;top:0;height:100%;width:${(a*100).toFixed(1)}%;
+       border-radius:3px;background:linear-gradient(90deg,#3ae3ff,#a78bfa)"></i>
+    <i style="position:absolute;left:${(b*100).toFixed(1)}%;top:-2px;width:1px;height:9px;
+       background:#ff9e4a;opacity:.85"></i></span>`;
+}
+
+function paint(){
+  const st=document.getElementById('ps-state');
+  if(!R4.ready){ if(st)st.textContent='measuring…'; return }
+  st.textContent = busy ? 'measuring…' : 'live';
+
+  const ex=s=>Math.max(0,(s.S-s.nul)/(1-s.nul+1e-9));
+  document.getElementById('ps-s4').textContent=R4.S.toFixed(3);
+  document.getElementById('ps-n4').textContent='≈'+R4.nul.toFixed(3);
+  document.getElementById('ps-p4').innerHTML =
+    R4.pv<0.05 ? `<span style="color:#3ae3ff">p=${R4.pv.toFixed(3)}</span>`
+               : `<span style="color:#ff9e4a">p=${R4.pv.toFixed(3)} · chance</span>`;
+
+  const ranked=[...R].sort((a,b)=>ex(b)-ex(a));
+  document.getElementById('ps-rows').innerHTML = ranked.map(r=>{
+    const sig=r.pv<0.05/R.length;                       // Bonferroni over 7 cuts
+    const col=sig?'#3ae3ff':(r.pv<0.05?'#a78bfa':'rgba(139,160,204,.55)');
+    return `<div style="color:${col}">
+      <span style="display:inline-block;width:52px">${r.p.name}</span>
+      ${bar(r.S,r.nul)}
+      <span style="display:inline-block;width:42px;text-align:right">${r.S.toFixed(3)}</span>
+      <span style="display:inline-block;width:52px;text-align:right;opacity:.65">+${ex(r).toFixed(3)}</span>
+      <span style="display:inline-block;width:56px;text-align:right">p ${r.pv<1/(NPERM+1)?'<'+(1/(NPERM+1)).toFixed(3):r.pv.toFixed(3)}</span>
+      ${sig?' ◆':''}</div>`;
+  }).join('');
+}
+
+/* mount under the existing SEPARATION INDEX card */
+const anchor=document.getElementById('sepbar');
+if(anchor&&anchor.parentElement&&anchor.parentElement.parentElement){
+  anchor.parentElement.parentElement.insertAdjacentElement('afterend',host);
+}
+
+/* ── kill the per-frame recompute, drive off the dirty flag instead ───────── */
+let lastFingerprint='';
+function fingerprint(){
+  let h=N*2654435761;
+  for(let i=0;i<N;i+=7) h=(h^(dCl[i]*16777619+((dF[i]*13)|0)))>>>0;
+  return h+'_'+N;
+}
+setInterval(()=>{
+  const fp=fingerprint();
+  if(fp!==lastFingerprint){ lastFingerprint=fp; recompute() }
+}, 900);
+
+window.partitionSearch={recompute,results:R,overall:R4,PARTS};
+console.log('[partition] mounted ·',PARTS.length,'cuts ·',NPERM,'permutations');
+})();
 </script>
 </body>
 </html>

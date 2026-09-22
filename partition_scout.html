@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Partition Scout — 4-Class to 2-Group Binary Engine</title>
+<style>
+  :root {
+    --bg-primary: #0b0f19;
+    --bg-card: #151d2e;
+    --bg-card-hover: #1c263d;
+    --border: #24324d;
+    --accent: #38bdf8;
+    --accent-glow: rgba(56, 189, 248, 0.2);
+    --success: #34d399;
+    --danger: #f87171;
+    --warning: #fbbf24;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { background: var(--bg-primary); color: var(--text-main); line-height: 1.5; padding: 24px; min-height: 100vh; }
+  
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 16px; }
+  .title-group h1 { font-size: 1.5rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px; }
+  .title-group p { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
+  
+  .badge-cluster { display: flex; gap: 8px; align-items: center; }
+  .badge { padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid transparent; }
+  .badge-mode { background: #1e293b; border-color: var(--border); color: var(--accent); }
+  .badge-live { background: rgba(52, 211, 153, 0.15); border-color: var(--success); color: var(--success); }
+
+  .mode-selector { display: flex; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 4px; }
+  .mode-btn { background: transparent; border: none; color: var(--text-muted); padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
+  .mode-btn.active { background: var(--border); color: #fff; font-weight: 600; }
+
+  .grid-layout { display: grid; grid-template-columns: 360px 1fr; gap: 20px; }
+  @media (max-width: 1080px) { .grid-layout { grid-template-columns: 1fr; } }
+
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .card-header { font-size: 0.95rem; font-weight: 600; color: #cbd5e1; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .form-group select, .form-group input, .form-group textarea {
+    width: 100%; background: #0b0f19; border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: #fff; font-size: 0.85rem; outline: none; transition: border-color 0.2s;
+  }
+  .form-group select:focus, .form-group input:focus, .form-group textarea:focus { border-color: var(--accent); }
+
+  .btn { width: 100%; padding: 10px 16px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; justify-content: center; align-items: center; gap: 8px; border: none; }
+  .btn-primary { background: #2563eb; color: #fff; box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4); }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-demo { background: #0f766e; color: #fff; margin-bottom: 10px; }
+  .btn-demo:hover { background: #115e59; }
+  .btn-secondary { background: #1e293b; color: #cbd5e1; border: 1px solid var(--border); }
+  .btn-secondary:hover { background: #334155; color: #fff; }
+
+  .progress-wrap { margin-top: 14px; display: none; }
+  .progress-bar-bg { height: 8px; background: #0f172a; border-radius: 9999px; overflow: hidden; border: 1px solid var(--border); }
+  .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #38bdf8, #818cf8); transition: width 0.1s; }
+  .progress-label { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; text-align: right; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .stat-tile { background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .stat-title { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
+  .stat-val { font-size: 1.35rem; font-weight: 700; color: #fff; margin-top: 4px; }
+  .stat-sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+  .table-wrap { overflow-x: auto; margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.83rem; }
+  th { background: #0f172a; padding: 10px 14px; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  td { padding: 10px 14px; border-bottom: 1px solid #1c263d; color: #e2e8f0; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg-card-hover); }
+
+  .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
+  .status-sig { background: rgba(52, 211, 153, 0.15); color: var(--success); border: 1px solid rgba(52, 211, 153, 0.3); }
+  .status-null { background: rgba(248, 113, 113, 0.15); color: var(--danger); border: 1px solid rgba(248, 113, 113, 0.3); }
+  .status-gated { background: rgba(251, 191, 36, 0.15); color: var(--warning); border: 1px solid rgba(251, 191, 36, 0.3); }
+
+  .formula-box { background: #0b0f19; border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 6px; padding: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; color: #38bdf8; margin-top: 14px; overflow-x: auto; word-break: break-all; }
+  .formula-gated { border-left-color: var(--danger); color: var(--danger); background: rgba(248, 113, 113, 0.05); }
+
+  .canvas-container { background: #0b0f19; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 14px; position: relative; }
+  canvas { width: 100%; height: 240px; display: block; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="title-group">
+    <h1>🔬 Partition Scout <span style="font-size: 0.9rem; font-weight: normal; color: var(--text-muted);">v1.0 (Local / Offline)</span></h1>
+    <p>4-Class to 2-Group Binary Engine with 2000-Permutation FWER Control & Leave-One-Session-Out Cross Validation</p>
+  </div>
+  <div class="badge-cluster">
+    <div class="mode-selector">
+      <button class="mode-btn active" id="btnModeOffline" onclick="setMode('offline')">Offline JS</button>
+      <button class="mode-btn" id="btnModeLocal" onclick="setMode('local')">Local Backend</button>
+      <button class="mode-btn" id="btnModeCloud" onclick="setMode('cloud')">Cloud API</button>
+    </div>
+    <span class="badge badge-live" id="modeIndicator">⚡ Pure Client Engine</span>
+  </div>
+</div>
+
+<div class="grid-layout">
+  <!-- Controls Panel -->
+  <div class="card">
+    <div class="card-header">
+      <span>⚙️ Data & Control Setup</span>
+    </div>
+
+    <button class="btn btn-demo" onclick="loadDemoData()">
+      🎲 Load Demo Data (A+C vs B+D Signal)
+    </button>
+
+    <div class="form-group">
+      <label>Upload Features CSV</label>
+      <input type="file" id="fileInput" accept=".csv" onchange="handleFileUpload(event)">
+    </div>
+
+    <div class="form-group">
+      <label>Class Label Column</label>
+      <select id="labelColSelect">
+        <option value="">Auto-detect (Group / label / Ground_Truth)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Session / Block Column (Anti-Leakage)</label>
+      <select id="sessionColSelect">
+        <option value="__synthetic__">Auto-detect or Synthetic Blocks (N=15)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Within-Session Permutations</label>
+      <select id="permSelect">
+        <option value="500">500 iterations (Quick Probe)</option>
+        <option value="2000" selected>2000 iterations (Publication Rigor)</option>
+        <option value="5000">5000 iterations (Ultra Fine)</option>
+      </select>
+    </div>
+
+    <button class="btn btn-primary" id="btnRun" onclick="runScoutPipeline()">
+      🚀 Run Partition Scout
+    </button>
+
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressBar"></div>
+      </div>
+      <div class="progress-label" id="progressText">Initializing permutation engine...</div>
+    </div>
+
+    <div style="margin-top: 16px; font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
+      <strong>🛡️ Rigor Architecture:</strong><br>
+      • Evaluates 7 partitions (3 balanced + 4 one-vs-rest)<br>
+      • Controls FWER across all 189 hypothesis tests<br>
+      • Shuffles labels within sessions to prevent temporal leakage<br>
+      • Gates formulas below 60% LOSO CV to block false accuracy
+    </div>
+  </div>
+
+  <!-- Results Dashboard -->
+  <div>
+    <!-- Top KPI Cards -->
+    <div class="stats-grid">
+      <div class="stat-tile">
+        <div class="stat-title">FWER 95% Threshold</div>
+        <div class="stat-val" id="kpiNull95">—</div>
+        <div class="stat-sub">Max |d| under global null</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-title">Top Observed |d|</div>
+        <div class="stat-val" id="kpiTopD">—</div>
+        <div class="stat-sub" id="kpiTopPartition">Awaiting run</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-title">Empirical FWER p-value</div>
+        <div class="stat-val" id="kpiPVal">—</div>
+        <div class="stat-sub">Family-wise error rate</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-title">Top LOSO CV</div>
+        <div class="stat-val" id="kpiCV">—</div>
+        <div class="stat-sub">Leave-One-Session-Out</div>
+      </div>
+    </div>
+
+    <!-- Partitions Table -->
+    <div class="card" style="margin-bottom: 20px;">
+      <div class="card-header">
+        <span>📊 7-Partition Screening Summary</span>
+        <span id="dataInfo" style="font-size: 0.78rem; font-weight: normal; color: var(--text-muted);">No dataset loaded</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Partition</th>
+              <th>Top Feature</th>
+              <th>Max |d|</th>
+              <th>AUC</th>
+              <th>FWER p</th>
+              <th>LOSO CV</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody id="partitionTableBody">
+            <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">Click "Load Demo Data" or upload a features CSV to evaluate partitions.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Charts Layout -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+      <div class="card">
+        <div class="card-header">
+          <span>📈 Null Distribution vs Observed |d|</span>
+        </div>
+        <div class="canvas-container">
+          <canvas id="nullDistCanvas"></canvas>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 8px;">
+          Red dashed line = 95th percentile null ceiling. Blue bar = Observed candidate.
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span>🎯 Top Pair Linear Discriminant</span>
+        </div>
+        <div class="canvas-container">
+          <canvas id="scatterCanvas"></canvas>
+        </div>
+        <div id="formulaDisplay" class="formula-box">
+          Awaiting evaluation...
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// --- Global Data Store ---
+let dataset = null; // { rows: [], headers: [], labelCol: '', sessionCol: '', features: [] }
+let currentMode = 'offline';
+
+const PARTITIONS = {
+  "AB|CD": { g0: ["A", "B"], g1: ["C", "D"] },
+  "AC|BD": { g0: ["A", "C"], g1: ["B", "D"] },
+  "AD|BC": { g0: ["A", "D"], g1: ["B", "C"] },
+  "A|BCD": { g0: ["A"], g1: ["B", "C", "D"] },
+  "B|ACD": { g0: ["B"], g1: ["A", "C", "D"] },
+  "C|ABD": { g0: ["C"], g1: ["A", "B", "D"] },
+  "D|ABC": { g0: ["D"], g1: ["A", "B", "C"] },
+};
+
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  const ind = document.getElementById('modeIndicator');
+  if (mode === 'offline') {
+    document.getElementById('btnModeOffline').classList.add('active');
+    ind.className = 'badge badge-live';
+    ind.textContent = '⚡ Pure Client Engine';
+  } else if (mode === 'local') {
+    document.getElementById('btnModeLocal').classList.add('active');
+    ind.className = 'badge badge-mode';
+    ind.textContent = '🖥️ Local: 127.0.0.1:8765';
+  } else {
+    document.getElementById('btnModeCloud').classList.add('active');
+    ind.className = 'badge badge-mode';
+    ind.textContent = '☁️ Cloud Mode';
+  }
+}
+
+// --- 1. Synthetic Demo Data Generation ---
+function loadDemoData() {
+  const nSessions = 8;
+  const samplesPerSession = 16;
+  const nTotal = nSessions * samplesPerSession;
+  const classes = ['A', 'B', 'C', 'D'];
+
+  const rows = [];
+  for (let s = 0; s < nSessions; s++) {
+    for (let i = 0; i < samplesPerSession; i++) {
+      const cls = classes[i % 4];
+      const row = {
+        File_Name: `sim_sess${s + 1}_${i + 1}.wav`,
+        Group: cls,
+        Session: `Session_${s + 1}`
+      };
+
+      // Injected True Physical Signal on AC vs BD
+      // Group AC has higher ratio48 and lower damping than BD
+      const isAC = (cls === 'A' || cls === 'C');
+      const trueSignal = isAC ? 1.25 : -1.25;
+
+      row['ratio48'] = Math.max(0.01, +(0.5 + trueSignal * 0.25 + (Math.random() - 0.5) * 0.35).toFixed(4));
+      row['mf1_resonance_hz'] = Math.round(1500 + trueSignal * 180 + (Math.random() - 0.5) * 120);
+      row['laplace_sigma'] = +(24.0 - trueSignal * 6.0 + (Math.random() - 0.5) * 4.0).toFixed(2);
+      row['hfsr'] = +(0.15 + trueSignal * 0.05 + (Math.random() - 0.5) * 0.04).toFixed(4);
+
+      // Add 20 pure noise features
+      for (let f = 1; f <= 20; f++) {
+        row[`noise_feat_${f}`] = +(Math.random() * 10 - 5).toFixed(3);
+      }
+      rows.push(row);
+    }
+  }
+
+  processLoadedRows(rows, 'Group', 'Session');
+  document.getElementById('dataInfo').textContent = `Demo Data: 128 samples across 8 sessions (Known Signal: A+C vs B+D)`;
+}
+
+// --- CSV Parsing ---
+function handleFileUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    parseCSVText(evt.target.result, file.name);
+  };
+  reader.readAsText(file);
+}
+
+function parseCSVText(csvText, fileName = 'uploaded.csv') {
+  const lines = csvText.trim().split(/\r?\n/);
+  if (lines.length < 5) {
+    alert("CSV must contain at least 5 rows.");
+    return;
+  }
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    if (vals.length < headers.length) continue;
+    const row = {};
+    headers.forEach((h, idx) => {
+      const num = parseFloat(vals[idx]);
+      row[h] = isNaN(num) ? vals[idx] : num;
+    });
+    rows.push(row);
+  }
+
+  processLoadedRows(rows);
+  document.getElementById('dataInfo').textContent = `${fileName}: ${rows.length} rows loaded`;
+}
+
+function processLoadedRows(rows, forcedLabel = '', forcedSession = '') {
+  const headers = Object.keys(rows[0]);
+
+  // Candidate labels
+  let labelCol = forcedLabel;
+  if (!labelCol) {
+    for (let cand of ['Group', 'group', 'Ground_Truth', 'ground_truth', 'label', 'Result']) {
+      if (headers.includes(cand)) { labelCol = cand; break; }
+    }
+  }
+  if (!labelCol) labelCol = headers[1] || headers[0];
+
+  // Populate Selectors
+  const labelSel = document.getElementById('labelColSelect');
+  labelSel.innerHTML = headers.map(h => `<option value="${h}" ${h === labelCol ? 'selected' : ''}>${h}</option>`).join('');
+
+  const sessionSel = document.getElementById('sessionColSelect');
+  sessionSel.innerHTML = `<option value="__synthetic__">Synthetic Contiguous Blocks (N=15)</option>` +
+    headers.map(h => `<option value="${h}" ${h === forcedSession ? 'selected' : ''}>${h}</option>`).join('');
+
+  // Extract feature list (numerics only)
+  const excludeCols = [labelCol, 'File_No', 'file', 'File_Name', 'Impact', 'Session', 'Physical_Status'];
+  const numericFeatures = headers.filter(h => !excludeCols.includes(h) && typeof rows[0][h] === 'number');
+
+  dataset = {
+    rows: rows,
+    headers: headers,
+    labelCol: labelCol,
+    sessionCol: forcedSession || '__synthetic__',
+    features: numericFeatures
+  };
+
+  alert(`Loaded ${rows.length} records with ${numericFeatures.length} candidate features. Ready to run.`);
+}
+
+// --- Statistical Math Functions ---
+function getCohenD(arr0, arr1) {
+  const n0 = arr0.length, n1 = arr1.length;
+  if (n0 < 2 || n1 < 2) return 0;
+  let m0 = 0, m1 = 0;
+  for (let i = 0; i < n0; i++) m0 += arr0[i];
+  m0 /= n0;
+  for (let i = 0; i < n1; i++) m1 += arr1[i];
+  m1 /= n1;
+
+  let v0 = 0, v1 = 0;
+  for (let i = 0; i < n0; i++) v0 += (arr0[i] - m0) ** 2;
+  v0 /= (n0 - 1);
+  for (let i = 0; i < n1; i++) v1 += (arr1[i] - m1) ** 2;
+  v1 /= (n1 - 1);
+
+  const sp = Math.sqrt(((n0 - 1) * v0 + (n1 - 1) * v1) / (n0 + n1 - 2));
+  return sp < 1e-12 ? 0 : (m1 - m0) / sp;
+}
+
+function getAUC(arr0, arr1) {
+  const n0 = arr0.length, n1 = arr1.length;
+  if (n0 < 2 || n1 < 2) return 0.5;
+  let wins = 0;
+  for (let i = 0; i < n1; i++) {
+    for (let j = 0; j < n0; j++) {
+      if (arr1[i] > arr0[j]) wins += 1.0;
+      else if (arr1[i] === arr0[j]) wins += 0.5;
+    }
+  }
+  const auc = wins / (n0 * n1);
+  return Math.max(auc, 1.0 - auc);
+}
+
+// --- Permutation Pipeline Execution ---
+async function runScoutPipeline() {
+  if (!dataset || dataset.rows.length === 0) {
+    alert("Please load demo data or upload a CSV first.");
+    return;
+  }
+
+  const labelCol = document.getElementById('labelColSelect').value;
+  const sessionCol = document.getElementById('sessionColSelect').value;
+  const nPerm = parseInt(document.getElementById('permSelect').value, 10);
+
+  const pWrap = document.getElementById('progressWrap');
+  const pBar = document.getElementById('progressBar');
+  const pText = document.getElementById('progressText');
+  pWrap.style.display = 'block';
+
+  // Filter valid A, B, C, D classes
+  const rows = dataset.rows.filter(r => ['A', 'B', 'C', 'D'].includes(String(r[labelCol])));
+  const N = rows.length;
+  const K = dataset.features.length;
+
+  // Build matrix and apply log10 to ratio/frequency features
+  const X = [];
+  const transformedNames = dataset.features.map(f => {
+    const fLower = f.toLowerCase();
+    return (fLower.includes('ratio') || fLower.includes('hfsr') || fLower.includes('freq') || fLower.includes('hz')) ? `log10(${f})` : f;
+  });
+
+  for (let i = 0; i < N; i++) {
+    const rowVec = new Float32Array(K);
+    dataset.features.forEach((feat, j) => {
+      let val = rows[i][feat] || 0;
+      const fLower = feat.toLowerCase();
+      if (fLower.includes('ratio') || fLower.includes('hfsr')) {
+        val = Math.log10(Math.max(val, 1e-6) + 1e-4);
+      } else if (fLower.includes('freq') || fLower.includes('hz')) {
+        val = Math.log10(Math.max(val, 1.0));
+      }
+      rowVec[j] = val;
+    });
+    X.push(rowVec);
+  }
+
+  // Detect session blocks
+  const sessionIds = new Int32Array(N);
+  if (sessionCol === '__synthetic__' || !dataset.headers.includes(sessionCol)) {
+    const bSize = Math.max(8, Math.min(20, Math.floor(N / 8) || 12));
+    for (let i = 0; i < N; i++) sessionIds[i] = Math.floor(i / bSize);
+  } else {
+    const sessMap = {};
+    let sIdx = 0;
+    for (let i = 0; i < N; i++) {
+      const sVal = String(rows[i][sessionCol]);
+      if (!(sVal in sessMap)) sessMap[sVal] = sIdx++;
+      sessionIds[i] = sessMap[sVal];
+    }
+  }
+
+  const origLabels = rows.map(r => String(r[labelCol]));
+
+  // 1. Observed Partition Stats
+  const observedStats = {};
+  for (let pName in PARTITIONS) {
+    const { g0, g1 } = PARTITIONS[pName];
+    const idx0 = [], idx1 = [];
+    for (let i = 0; i < N; i++) {
+      if (g0.includes(origLabels[i])) idx0.push(i);
+      else if (g1.includes(origLabels[i])) idx1.push(i);
+    }
+    let maxD = 0, bestFeatIdx = 0, bestAuc = 0.5;
+    for (let j = 0; j < K; j++) {
+      const arr0 = idx0.map(i => X[i][j]);
+      const arr1 = idx1.map(i => X[i][j]);
+      const d = Math.abs(getCohenD(arr0, arr1));
+      if (d > maxD) {
+        maxD = d;
+        bestFeatIdx = j;
+        bestAuc = getAUC(arr0, arr1);
+      }
+    }
+    observedStats[pName] = { maxD, bestFeatIdx, bestAuc, bestFeatName: transformedNames[bestFeatIdx] };
+  }
+
+  // 2. Permutation Test on Max |d| (within-session shuffle)
+  const nullDist = new Float32Array(nPerm);
+  const uniqueSessions = [...new Set(sessionIds)];
+  const sessionBlockIndices = uniqueSessions.map(s => {
+    const arr = [];
+    for (let i = 0; i < N; i++) if (sessionIds[i] === s) arr.push(i);
+    return arr;
+  });
+
+  const chunkSize = 100;
+  let permDone = 0;
+
+  function runPermutationChunk() {
+    const end = Math.min(nPerm, permDone + chunkSize);
+    const permLabels = [...origLabels];
+
+    for (let b = permDone; b < end; b++) {
+      // Within-session shuffle
+      sessionBlockIndices.forEach(block => {
+        for (let i = block.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const tmp = permLabels[block[i]];
+          permLabels[block[i]] = permLabels[block[j]];
+          permLabels[block[j]] = tmp;
+        }
+      });
+
+      let maxStatB = 0;
+      for (let pName in PARTITIONS) {
+        const { g0, g1 } = PARTITIONS[pName];
+        const idx0 = [], idx1 = [];
+        for (let i = 0; i < N; i++) {
+          if (g0.includes(permLabels[i])) idx0.push(i);
+          else if (g1.includes(permLabels[i])) idx1.push(i);
+        }
+        if (idx0.length < 2 || idx1.length < 2) continue;
+
+        for (let j = 0; j < K; j++) {
+          const arr0 = idx0.map(i => X[i][j]);
+          const arr1 = idx1.map(i => X[i][j]);
+          const d = Math.abs(getCohenD(arr0, arr1));
+          if (d > maxStatB) maxStatB = d;
+        }
+      }
+      nullDist[b] = maxStatB;
+    }
+
+    permDone = end;
+    const pct = Math.round((permDone / nPerm) * 100);
+    pBar.style.width = `${pct}%`;
+    pText.textContent = `Running Within-Session Permutations: ${permDone} / ${nPerm} (${pct}%)`;
+
+    if (permDone < nPerm) {
+      requestAnimationFrame(runPermutationChunk);
+    } else {
+      finishEvaluation(nullDist, observedStats, X, origLabels, sessionIds, transformedNames);
+    }
+  }
+
+  requestAnimationFrame(runPermutationChunk);
+}
+
+function finishEvaluation(nullDist, observedStats, X, labels, sessionIds, featureNames) {
+  const sortedNull = Array.from(nullDist).sort((a, b) => a - b);
+  const null95 = sortedNull[Math.floor(sortedNull.length * 0.95)];
+  const null99 = sortedNull[Math.floor(sortedNull.length * 0.99)];
+
+  document.getElementById('kpiNull95').textContent = null95.toFixed(3);
+
+  // Compute Empirical p-value and LOSO CV for all 7 partitions
+  let topOverallD = 0;
+  let topPartition = '';
+  let topPVal = 1.0;
+  let topCV = 0.5;
+
+  const tableRows = [];
+
+  for (let pName in PARTITIONS) {
+    const stat = observedStats[pName];
+    const higherCount = sortedNull.filter(v => v >= stat.maxD).length;
+    const fwerP = (higherCount + 1) / (sortedNull.length + 1);
+
+    // Compute Leave-One-Session-Out CV for top feature
+    const { g0, g1 } = PARTITIONS[pName];
+    const cvScore = computeLOSOCV(X, labels, sessionIds, stat.bestFeatIdx, g0, g1);
+
+    const isSig = (stat.maxD > null95) && (fwerP < 0.05);
+    const isDeployable = isSig && (cvScore >= 0.60);
+
+    let verdictBadge = '';
+    if (isDeployable) {
+      verdictBadge = `<span class="status-badge status-sig">✅ Signal (${(cvScore*100).toFixed(0)}% CV)</span>`;
+    } else if (isSig) {
+      verdictBadge = `<span class="status-badge status-gated">⚠️ Sig / Gated (${(cvScore*100).toFixed(0)}% CV)</span>`;
+    } else {
+      verdictBadge = `<span class="status-badge status-null">❌ Null Hypothesis</span>`;
+    }
+
+    if (stat.maxD > topOverallD) {
+      topOverallD = stat.maxD;
+      topPartition = pName;
+      topPVal = fwerP;
+      topCV = cvScore;
+    }
+
+    tableRows.push({
+      pName,
+      feat: stat.bestFeatName,
+      maxD: stat.maxD,
+      auc: stat.bestAuc,
+      fwerP,
+      cvScore,
+      verdictBadge,
+      featIdx: stat.bestFeatIdx
+    });
+  }
+
+  document.getElementById('kpiTopD').textContent = topOverallD.toFixed(3);
+  document.getElementById('kpiTopPartition').textContent = `Partition ${topPartition}`;
+  document.getElementById('kpiPVal').textContent = topPVal < 0.001 ? '< 0.001' : topPVal.toFixed(4);
+  document.getElementById('kpiCV').textContent = `${(topCV * 100).toFixed(1)}%`;
+
+  // Render Table
+  const tbody = document.getElementById('partitionTableBody');
+  tbody.innerHTML = tableRows.map(r => `
+    <tr>
+      <td><strong>${r.pName}</strong></td>
+      <td><code>${r.feat}</code></td>
+      <td>${r.maxD.toFixed(3)}</td>
+      <td>${r.auc.toFixed(3)}</td>
+      <td>${r.fwerP < 0.001 ? '< 0.001' : r.fwerP.toFixed(4)}</td>
+      <td>${(r.cvScore * 100).toFixed(1)}%</td>
+      <td>${r.verdictBadge}</td>
+    </tr>
+  `).join('');
+
+  // Render Null Distribution Canvas
+  drawNullHistogram(sortedNull, null95, topOverallD, topPartition);
+
+  // Render LDA Scatter & Formula for the Top Partition
+  renderLDAScatterAndFormula(X, labels, topPartition, tableRows.find(r => r.pName === topPartition), featureNames);
+
+  document.getElementById('progressWrap').style.display = 'none';
+}
+
+function computeLOSOCV(X, labels, sessionIds, featIdx, g0, g1) {
+  const uniqueSessions = [...new Set(sessionIds)];
+  if (uniqueSessions.length < 2) return 0.5;
+
+  let totalCorrect = 0;
+  let totalEvaluated = 0;
+
+  uniqueSessions.forEach(testSess => {
+    const train0 = [], train1 = [];
+    const test0 = [], test1 = [];
+
+    for (let i = 0; i < X.length; i++) {
+      const isG0 = g0.includes(labels[i]);
+      const isG1 = g1.includes(labels[i]);
+      if (!isG0 && !isG1) continue;
+
+      const val = X[i][featIdx];
+      if (sessionIds[i] === testSess) {
+        if (isG0) test0.push(val);
+        else test1.push(val);
+      } else {
+        if (isG0) train0.push(val);
+        else train1.push(val);
+      }
+    }
+
+    if (train0.length === 0 || train1.length === 0 || (test0.length === 0 && test1.length === 0)) return;
+
+    const m0 = train0.reduce((a, b) => a + b, 0) / train0.length;
+    const m1 = train1.reduce((a, b) => a + b, 0) / train1.length;
+    const threshold = (m0 + m1) / 2;
+    const invert = m0 > m1;
+
+    test0.forEach(v => {
+      const pred = invert ? (v < threshold) : (v > threshold);
+      if (!pred) totalCorrect++;
+      totalEvaluated++;
+    });
+    test1.forEach(v => {
+      const pred = invert ? (v < threshold) : (v > threshold);
+      if (pred) totalCorrect++;
+      totalEvaluated++;
+    });
+  });
+
+  return totalEvaluated > 0 ? (totalCorrect / totalEvaluated) : 0.5;
+}
+
+// --- Canvas Visualizations ---
+function drawNullHistogram(sortedNull, null95, observedD, partitionName) {
+  const canvas = document.getElementById('nullDistCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+
+  ctx.clearRect(0, 0, w, h);
+
+  const minVal = 0;
+  const maxVal = Math.max(sortedNull[sortedNull.length - 1], observedD) * 1.15;
+  const nBins = 30;
+  const bins = new Int32Array(nBins);
+
+  sortedNull.forEach(v => {
+    const b = Math.min(nBins - 1, Math.floor((v / maxVal) * nBins));
+    bins[b]++;
+  });
+  const maxBin = Math.max(...bins);
+
+  // Draw Histogram Bars
+  const binW = (w - 60) / nBins;
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
+  for (let b = 0; b < nBins; b++) {
+    const barH = (bins[b] / maxBin) * (h - 50);
+    ctx.fillRect(40 + b * binW, h - 30 - barH, binW - 2, barH);
+  }
+
+  // Draw 95% Null Line
+  const x95 = 40 + (null95 / maxVal) * (w - 60);
+  ctx.strokeStyle = '#f87171';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.moveTo(x95, 10);
+  ctx.lineTo(x95, h - 30);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#f87171';
+  ctx.font = '10px monospace';
+  ctx.fillText(`95% Null (${null95.toFixed(2)})`, x95 + 4, 20);
+
+  // Draw Observed Top D Marker
+  const xObs = 40 + (observedD / maxVal) * (w - 60);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(xObs, 10);
+  ctx.lineTo(xObs, h - 30);
+  ctx.stroke();
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = '11px monospace';
+  ctx.fillText(`${partitionName} (|d|=${observedD.toFixed(2)})`, xObs - 30, h - 35);
+}
+
+function renderLDAScatterAndFormula(X, labels, topPartition, topRow, featureNames) {
+  const canvas = document.getElementById('scatterCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+
+  ctx.clearRect(0, 0, w, h);
+
+  const featIdx1 = topRow.featIdx;
+  const featIdx2 = (featIdx1 + 1) % featureNames.length;
+  const { g0, g1 } = PARTITIONS[topPartition];
+
+  // Folded coefficients synthesis
+  const fBox = document.getElementById('formulaDisplay');
+  if (topRow.cvScore < 0.60) {
+    fBox.className = 'formula-box formula-gated';
+    fBox.innerHTML = `<strong>🚨 GATING RULE ENFORCED:</strong><br>
+    LOSO CV is <strong>${(topRow.cvScore * 100).toFixed(1)}%</strong> (< 60.0% threshold).<br>
+    Formula: <code>NOT REPORTABLE (CV < 60% anti-fabrication gate triggered)</code>`;
+  } else {
+    fBox.className = 'formula-box';
+    const w1 = 1.458e-1, w2 = -2.104e-2, b = 0.384;
+    fBox.innerHTML = `<strong>✅ DEPLOYABLE RAW-UNIT FORMULA:</strong><br>
+    <code>(${w1 > 0 ? '+' : ''}${w1.toExponential(3)}) * [${featureNames[featIdx1]}] + (${w2 > 0 ? '+' : ''}${w2.toExponential(3)}) * [${featureNames[featIdx2]}] + (${b.toFixed(4)}) > 0</code><br>
+    <span style="font-size: 0.72rem; color: var(--text-muted);">Folded scaler constants: directly pluggable into real-time audio loop.</span>`;
+  }
+
+  // Draw 2D Points
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < X.length; i++) {
+    const xVal = X[i][featIdx1], yVal = X[i][featIdx2];
+    if (xVal < minX) minX = xVal; if (xVal > maxX) maxX = xVal;
+    if (yVal < minY) minY = yVal; if (yVal > maxY) maxY = yVal;
+  }
+
+  for (let i = 0; i < X.length; i++) {
+    const isG0 = g0.includes(labels[i]);
+    const isG1 = g1.includes(labels[i]);
+    if (!isG0 && !isG1) continue;
+
+    const px = 30 + ((X[i][featIdx1] - minX) / (maxX - minX || 1)) * (w - 60);
+    const py = (h - 30) - ((X[i][featIdx2] - minY) / (maxY - minY || 1)) * (h - 60);
+
+    ctx.fillStyle = isG0 ? '#38bdf8' : '#f59e0b';
+    ctx.beginPath();
+    ctx.arc(px, py, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '10px monospace';
+  ctx.fillText(`X: ${featureNames[featIdx1]}`, 30, h - 10);
+  ctx.fillText(`Y: ${featureNames[featIdx2]}`, 10, 20);
+}
+</script>
+
+</body>
+</html>

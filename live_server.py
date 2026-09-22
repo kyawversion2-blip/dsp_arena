@@ -250,6 +250,7 @@ app.add_middleware(
 )
 
 _HTML_PATH = Path(__file__).parent / "dsp-cluster-lab.html"
+_SCOUT_HTML_PATH = Path(__file__).parent / "partition_scout.html"
 
 
 @app.get("/", response_class=FileResponse, include_in_schema=False)
@@ -257,6 +258,13 @@ async def root() -> FileResponse:
     if not _HTML_PATH.exists():
         raise HTTPException(404, "dsp-cluster-lab.html not found")
     return FileResponse(_HTML_PATH, media_type="text/html")
+
+
+@app.get("/scout", response_class=FileResponse, include_in_schema=False)
+async def scout() -> FileResponse:
+    if not _SCOUT_HTML_PATH.exists():
+        raise HTTPException(404, "partition_scout.html not found")
+    return FileResponse(_SCOUT_HTML_PATH, media_type="text/html")
 
 
 @app.get("/health")
