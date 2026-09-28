@@ -6,7 +6,7 @@ on:
 jobs:
   build-rdp:
     runs-on: windows-2022
-    timeout-minutes: 120
+    timeout-minutes: 15
 
     steps:
       - name: Enable Remote Desktop & Configure Registry
@@ -32,35 +32,22 @@ jobs:
           Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ secrets.TAILSCALE_AUTHKEY }}" --hostname="gh-rdp-runner" --accept-routes
 
-      - name: Output Connection Details
-        shell: powershell
-        run: |
-          $tailscaleIP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
-          Write-Output "========================================"
-          Write-Output "RDP Setup Completed Successfully!"
-          Write-Output "Tailscale IP : $tailscaleIP"
-          Write-Output "Username     : RDPUser"
-          Write-Output "========================================"
-
-      - name: Keep Runner Alive (DO NOT EDIT - Required for RDP access)
+      - name: Get Tailscale IP
+        id: tailscale
         shell: bash
         run: |
+          TAILSCALE_IP=$(/c/"Program Files"/Tailscale/tailscale.exe ip -4)
+          echo "Tailscale IP: $TAILSCALE_IP"
+          echo "ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
           echo "========================================"
-          echo "RDP Server is READY!"
+          echo "Tailscale IP: $TAILSCALE_IP"
+          echo "Username: RDPUser"
           echo "========================================"
-          echo ""
-          echo "Connect via RDP using:"
-          echo "  Server: [See 'Tailscale IP' above]"
-          echo "  Username: RDPUser"
-          echo "  Password: [see secret RDP_PASSWORD]"
-          echo ""
-          echo "The runner will terminate after 2 hours."
-          echo "Waiting for 10 minutes... (Ctrl+C to stop)"
-          
-          # Wait for 10 minutes before terminating
-          # This gives you time to connect via RDP
-          for i in {1..60}; do
-            echo "Waiting... $((i*10)) seconds / 600 seconds remaining"
-            sleep 10
-          done
-          echo "Timeout reached - runner will terminate"
+
+      - name: Wait for RDP Session
+        shell: bash
+        run: |
+          echo "Waiting 30 seconds before terminating..."
+          echo "You have this much time to connect via RDP using the IP above"
+          sleep 30
+          echo "Session timeout reached"
