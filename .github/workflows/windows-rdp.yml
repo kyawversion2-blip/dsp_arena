@@ -42,16 +42,25 @@ jobs:
           Write-Output "Username     : RDPUser"
           Write-Output "========================================"
 
-      - name: Keep Runner Alive
-        shell: powershell
+      - name: Keep Runner Alive (DO NOT EDIT - Required for RDP access)
+        shell: bash
         run: |
-          Write-Output "========================================"
-          Write-Output "RDP Server is READY!"
-          Write-Output "========================================"
-          Write-Output ""
-          Write-Output "Connect via RDP using:"
-          Write-Output "  Server: [Tailscale IP shown above]"
-          Write-Output "  Username: RDPUser"
-          Write-Output "  Password: StrongPassword123!"
-          Write-Output ""
-          Write-Output "The runner will terminate after 2 hours."
+          echo "========================================"
+          echo "RDP Server is READY!"
+          echo "========================================"
+          echo ""
+          echo "Connect via RDP using:"
+          echo "  Server: [See 'Tailscale IP' above]"
+          echo "  Username: RDPUser"
+          echo "  Password: [see secret RDP_PASSWORD]"
+          echo ""
+          echo "The runner will terminate after 2 hours."
+          echo "Waiting for 10 minutes... (Ctrl+C to stop)"
+          
+          # Wait for 10 minutes before terminating
+          # This gives you time to connect via RDP
+          for i in {1..60}; do
+            echo "Waiting... $((i*10)) seconds / 600 seconds remaining"
+            sleep 10
+          done
+          echo "Timeout reached - runner will terminate"
