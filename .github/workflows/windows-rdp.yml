@@ -1,0 +1,54 @@
+name: Windows RDP via Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-rdp:
+    runs-on: windows-2022
+    timeout-minutes: 350
+
+    steps:
+      - name: Enable Remote Desktop & Configure Registry
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+      - name: Create RDP User Account
+        shell: powershell
+        run: |
+          $Password = ConvertTo-SecureString "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
+          New-LocalUser -Name "RDPUser" -Password $Password -Description "Automated RDP User" -PasswordNeverExpires
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser"
+          Add-LocalGroupMember -Group "Administrators" -Member "RDPUser"
+
+      - name: Install and Authenticate Tailscale
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
+          Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ secrets.TAILSCALE_AUTHKEY }}" --hostname="gh-rdp-runner" --accept-routes
+
+      - name: Output Connection Details
+        shell: powershell
+        run: |
+          $tailscaleIP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          Write-Output "========================================"
+          Write-Output "RDP Setup Completed Successfully!"
+          Write-Output "Tailscale IP : $tailscaleIP"
+          Write-Output "Username     : RDPUser"
+          Write-Output "========================================"
+
+      - name: Keep Runner Alive
+        shell: powershell
+        run: |
+          $timeout = 340 # Minutes
+          $interval = 30
+          $elapsed = 0
+          while ($elapsed -lt ($timeout * 60)) {
+              Start-Sleep -Seconds $interval
+              $elapsed += $interval
+          }
