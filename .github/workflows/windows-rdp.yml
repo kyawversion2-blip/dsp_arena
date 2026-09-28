@@ -6,7 +6,7 @@ on:
 jobs:
   build-rdp:
     runs-on: windows-2022
-    timeout-minutes: 10
+    timeout-minutes: 120
 
     steps:
       - name: Enable Remote Desktop & Configure Registry
@@ -45,9 +45,13 @@ jobs:
       - name: Keep Runner Alive
         shell: powershell
         run: |
-          Write-Output "RDP Server is ready! Tailscale IP: $env:TAILSCALE_IP"
+          Write-Output "========================================"
+          Write-Output "RDP Server is READY!"
+          Write-Output "========================================"
+          Write-Output ""
           Write-Output "Connect via RDP using:"
-          Write-Output "  Server: Check the 'Output Connection Details' step above"
+          Write-Output "  Server: [Tailscale IP shown above]"
           Write-Output "  Username: RDPUser"
-          Write-Output "  Password: [see secret RDP_PASSWORD]"
-          Write-Output "The runner will terminate in ~5 minutes after this step completes."
+          Write-Output "  Password: StrongPassword123!"
+          Write-Output ""
+          Write-Output "The runner will terminate after 2 hours."
