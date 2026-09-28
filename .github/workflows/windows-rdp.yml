@@ -6,7 +6,7 @@ on:
 jobs:
   build-rdp:
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - name: Enable Remote Desktop & Configure Registry
@@ -44,10 +44,20 @@ jobs:
           echo "Username: RDPUser"
           echo "========================================"
 
-      - name: Wait for RDP Session
+      - name: Wait for RDP Session (5 minutes)
         shell: bash
         run: |
-          echo "Waiting 30 seconds before terminating..."
-          echo "You have this much time to connect via RDP using the IP above"
-          sleep 30
+          echo "========================================"
+          echo "RDP Server is READY!"
+          echo "========================================"
+          echo ""
+          echo "You have ~5 minutes to connect via RDP"
+          echo "Using the Tailscale IP shown above"
+          echo ""
+          echo "Server: [Tailscale IP from step above]"
+          echo "Username: RDPUser"
+          echo "Password: [see secrets]"
+          echo ""
+          echo "Waiting 300 seconds..."
+          sleep 300
           echo "Session timeout reached"
