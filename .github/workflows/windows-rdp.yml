@@ -6,7 +6,7 @@ on:
 jobs:
   build-rdp:
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 15
 
     steps:
       - name: Enable Remote Desktop & Configure Registry
@@ -37,27 +37,19 @@ jobs:
         shell: bash
         run: |
           TAILSCALE_IP=$(/c/"Program Files"/Tailscale/tailscale.exe ip -4)
-          echo "Tailscale IP: $TAILSCALE_IP"
-          echo "ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+          echo "::set-output name=ip::$TAILSCALE_IP"
           echo "========================================"
           echo "Tailscale IP: $TAILSCALE_IP"
           echo "Username: RDPUser"
           echo "========================================"
 
-      - name: Wait for RDP Session (5 minutes)
-        shell: bash
+      - name: Keep Runner Alive (10 mins - click shortcut to extend)
+        shell: powershell
         run: |
-          echo "========================================"
-          echo "RDP Server is READY!"
-          echo "========================================"
-          echo ""
-          echo "You have ~5 minutes to connect via RDP"
-          echo "Using the Tailscale IP shown above"
-          echo ""
-          echo "Server: [Tailscale IP from step above]"
-          echo "Username: RDPUser"
-          echo "Password: [see secrets]"
-          echo ""
-          echo "Waiting 300 seconds..."
-          sleep 300
-          echo "Session timeout reached"
+          Write-Host "RDP Server is READY!"
+          Write-Host "Connect via RDP using:"
+          Write-Host "  Server: $env:TAILSCALE_IP (see IP above)"
+          Write-Host "  Username: RDPUser"
+          Write-Host "  Password: [from secret]"
+          Write-Host ""
+          Write-Host "The runner will terminate in 10 minutes."
