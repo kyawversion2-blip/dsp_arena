@@ -1,4 +1,4 @@
-name: Windows RDP via Tailscale (with Chrome Web Gateway)
+name: Windows RDP via Tailscale
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
   build-rdp:
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Enable Remote Desktop & Configure Registry
@@ -21,9 +21,9 @@ jobs:
         shell: powershell
         run: |
           $Password = ConvertTo-SecureString "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
-          New-LocalUser -Name "RDPUser" -Password $Password -Description "Automated RDP User" -PasswordNeverExpires -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser" -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Administrators" -Member "RDPUser" -ErrorAction SilentlyContinue
+          New-LocalUser -Name "RDPUser" -Password $Password -Description "Automated RDP User" -PasswordNeverExpires
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser"
+          Add-LocalGroupMember -Group "Administrators" -Member "RDPUser"
 
       - name: Install and Authenticate Tailscale
         shell: powershell
@@ -31,55 +31,25 @@ jobs:
           Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
           Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ secrets.TAILSCALE_AUTHKEY }}" --hostname="gh-rdp-runner" --accept-routes
-          $env:TAILSCALE_IP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
-          echo "TAILSCALE_IP=$env:TAILSCALE_IP" >> $env:GITHUB_ENV
 
-      - name: Install Myrtille (Chrome Web RDP Gateway)
+      - name: Check Tailscale Status
         shell: powershell
         run: |
-          # 1. Enable IIS + .NET + WCF HTTP Activation (prereqs for Myrtille)
-          Write-Output "Enabling IIS and required Windows features..."
-          Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole -All -NoRestart | Out-Null
-          Enable-WindowsOptionalFeature -Online -FeatureName IIS-ASPNET45 -All -NoRestart | Out-Null
-          Enable-WindowsOptionalFeature -Online -FeatureName WCF-HTTP-Activation -All -NoRestart | Out-Null
-          Enable-WindowsOptionalFeature -Online -FeatureName WAS-ProcessModel -All -NoRestart | Out-Null
+          $ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          Write-Output "Tailscale IP : $ip"
+          Write-Output "Hostname     : gh-rdp-runner"
+          Write-Output "RDP Username : RDPUser"
+          Write-Output ""
+          Write-Output "RDP Server is READY - keep this job ALIVE"
 
-          Write-Output "Rebooting-independent feature install done. Downloading Myrtille MSI..."
-          Invoke-WebRequest -Uri "https://github.com/myrtille-rdp/myrtille/releases/download/v2.9.2/Myrtille_2.9.2_x86_x64_Setup.msi" -OutFile "myrtille-setup.msi"
-
-          Write-Output "Installing Myrtille silently..."
-          $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i", "myrtille-setup.msi", "/quiet", "/norestart", "/qn" -Wait -PassThru
-          Write-Output "msiexec exit code: $($proc.ExitCode)"
-
-          # 2. Start IIS and Myrtille App Pool + Services
-          iisreset /start
-          Start-Service 'MyrtilleServices' -ErrorAction SilentlyContinue
-
-          Write-Output "Myrtille installation finished."
-
-      - name: Output Connection Details
-        id: conn
-        shell: bash
+      - name: Keep Runner Alive (12 minutes for RDP connection)
+        shell: powershell
         run: |
-          IP=$(/c/"Program Files"/Tailscale/tailscale.exe ip -4)
-          echo "=========================================================="
-          echo "  RDP SERVER READY"
-          echo "=========================================================="
-          echo ""
-          echo " [Chrome Web RDP] -> https://$IP/myrtille"
-          echo "     First login uses admin / admin (Mytrille gateway)"
-          echo ""
-          echo " [Native RDP Client] -> Server: $IP"
-          echo "     Username: RDPUser"
-          echo "     Password: [see secret RDP_PASSWORD]"
-          echo ""
-          echo " NOTE: GitHub Actions runner is EPHEMERAL."
-          echo " It terminates when the job finishes. Connect fast!"
-          echo "=========================================================="
-
-      - name: Keep Runner Alive (9 minutes)
-        shell: bash
-        run: |
-          echo "Runner alive for 9 minutes to allow connection."
-          sleep 540
-          echo "Session ended."
+          # Hostname the runner publishes as on the tailnet: gh-rdp-runner
+          # The IP is available from the Mac's Tailscale app (see gh-rdp-runner device)
+          $deadline = (Get-Date).AddMinutes(12)
+          while ((Get-Date) -lt $deadline) {
+            Write-Output "RDP server alive until $deadline ... (connect now from Tailscale app)"
+            Start-Sleep -Seconds 30
+          }
+          Write-Output "Session window ended."
