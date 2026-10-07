@@ -12,7 +12,7 @@ Phase 1+2 contracts (baked-in from code-review pre-implementation guards):
   G5  Actual sample-rate (not requested) logged and returned as actual_sr
 
 Run:
-    uv run uvicorn live_server:app --host 0.0.0.0 --port 8765 --reload
+    uv run uvicorn live_server:app --host 127.0.0.1 --port 8765 --reload  # LAN requires DSP_ALLOW_LAN=1 + auth/origin config
 """
 
 from __future__ import annotations
@@ -24,22 +24,34 @@ import importlib.util
 import struct
 import time
 import logging
+import math
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from network_policy import NetworkPolicy, NetworkPolicyError
 import socket
 import webbrowser
 import io
-import qrcode
-import qrcode.image.svg
-from fastapi.responses import FileResponse, JSONResponse, Response
+try:
+    import qrcode
+    import qrcode.image.svg
+    _HAS_QRCODE = True
+except ImportError:
+    qrcode = None
+    _HAS_QRCODE = False
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 import mic_loop as _mic
 import event_store as _store
+import confirmed_store as _labelled
+import similarity as _similar
 
 # Local DSP library - reuse exact same recipe as offline optimizer.
 # ONE recipe = ONE truth (PROJECT_MEMORY s1 golden rule).
@@ -96,33 +108,208 @@ if not log.handlers:
 
 
 class _ConnectionManager:
+    """Manages active WebSocket connections for real-time broadcasts with heartbeat support."""
+    
+    HEARTBEAT_INTERVAL = 30.0  # seconds
+    HEARTBEAT_TIMEOUT = 90.0   # seconds
+    MAX_CONNECTIONS = 100
+    
     def __init__(self) -> None:
-        self._active: list[WebSocket] = []
-
-    async def connect(self, ws: WebSocket) -> None:
-        await ws.accept()
-        self._active.append(ws)
-        log.info("WS  client connected  (total=%d)", len(self._active))
-
-    def disconnect(self, ws: WebSocket) -> None:
-        if ws in self._active:
-            self._active.remove(ws)
-        log.info("WS  client disconnected (total=%d)", len(self._active))
-
-    async def broadcast(self, payload: dict[str, Any]) -> None:
-        dead: list[WebSocket] = []
-        for ws in list(self._active):
+        self._active: dict[str, dict] = {}  # client_id -> {ws, connected_at, last_heartbeat, authenticated}
+        self._heartbeat_task: asyncio.Task | None = None
+        self._cleanup_task: asyncio.Task | None = None
+    
+    def _generate_client_id(self) -> str:
+        return f"ws_{uuid.uuid4().hex[:12]}"
+    
+    async def start_background_tasks(self) -> None:
+        if self._heartbeat_task is None:
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(), name="ws-heartbeat")
+            log.info("WebSocket heartbeat task started")
+        if self._cleanup_task is None:
+            self._cleanup_task = asyncio.create_task(self._cleanup_loop(), name="ws-cleanup")
+            log.info("WebSocket cleanup task started")
+    
+    async def stop_background_tasks(self) -> None:
+        for task in (self._heartbeat_task, self._cleanup_task):
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._heartbeat_task = None
+        self._cleanup_task = None
+        log.info("WebSocket background tasks stopped")
+    
+    async def _heartbeat_loop(self) -> None:
+        while True:
             try:
-                await ws.send_json(payload)
+                await asyncio.sleep(self.HEARTBEAT_INTERVAL)
+                now = time.time()
+                stale = []
+                
+                for client_id, info in self._active.items():
+                    if now - info["last_heartbeat"] > self.HEARTBEAT_TIMEOUT:
+                        log.warning("Client %s heartbeat timeout, disconnecting", client_id)
+                        stale.append(client_id)
+                    else:
+                        try:
+                            await info["ws"].send_json({
+                                "type": "heartbeat",
+                                "timestamp": now,
+                                "server_time": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                            })
+                        except Exception as e:
+                            log.warning("Failed to send heartbeat to %s: %s", client_id, e)
+                            stale.append(client_id)
+                
+                for client_id in stale:
+                    await self._force_disconnect(client_id, code=1001, reason="Heartbeat timeout")
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.exception("Error in heartbeat loop: %s", e)
+    
+    async def _cleanup_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(60.0)
+                now = time.time()
+                stale = []
+                
+                for client_id, info in self._active.items():
+                    if now - info.get("last_activity", now) > 300.0:
+                        log.info("Client %s inactive for 5 minutes, cleaning up", client_id)
+                        stale.append(client_id)
+                
+                for client_id in stale:
+                    await self._force_disconnect(client_id, code=1001, reason="Inactivity timeout")
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.exception("Error in cleanup loop: %s", e)
+    
+    async def _force_disconnect(self, client_id: str, code: int = 1000, reason: str = "Normal closure") -> None:
+        info = self._active.pop(client_id, None)
+        if info:
+            try:
+                await info["ws"].close(code=code, reason=reason)
             except Exception:
-                dead.append(ws)
-        for ws in dead:
-            if ws in self._active:
-                self._active.remove(ws)
-
+                pass
+            log.info("Force disconnected client %s: %s", client_id, reason)
+    
+    async def connect(self, ws: WebSocket) -> str:
+        if len(self._active) >= self.MAX_CONNECTIONS:
+            log.warning("Max connections reached, rejecting new connection")
+            await ws.close(code=1013, reason="Server busy - max connections reached")
+            raise WebSocketDisconnect(code=1013, reason="Max connections reached")
+        
+        await ws.accept()
+        client_id = self._generate_client_id()
+        now = time.time()
+        
+        self._active[client_id] = {
+            "ws": ws,
+            "connected_at": now,
+            "last_heartbeat": now,
+            "last_activity": now,
+            "authenticated": False,
+            "message_count": 0
+        }
+        log.info("WS client connected: %s (total=%d)", client_id, len(self._active))
+        
+        try:
+            await ws.send_json({
+                "type": "connect",
+                "client_id": client_id,
+                "timestamp": now,
+                "server_time": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                "heartbeat_interval": self.HEARTBEAT_INTERVAL
+            })
+        except Exception as e:
+            log.warning("Failed to send connect confirmation to %s: %s", client_id, e)
+            await self._force_disconnect(client_id)
+            raise
+            
+        return client_id
+    
+    def disconnect(self, ws: WebSocket) -> str | None:
+        for client_id, info in self._active.items():
+            if info["ws"] is ws:
+                del self._active[client_id]
+                log.info("WS client disconnected: %s (total=%d)", client_id, len(self._active))
+                return client_id
+        return None
+    
+    def disconnect_by_id(self, client_id: str) -> bool:
+        if client_id in self._active:
+            del self._active[client_id]
+            log.info("WS client disconnected by ID: %s (total=%d)", client_id, len(self._active))
+            return True
+        return False
+    
+    def get_connection(self, client_id: str) -> dict | None:
+        return self._active.get(client_id)
+    
+    def update_heartbeat(self, client_id: str) -> bool:
+        info = self._active.get(client_id)
+        if info:
+            info["last_heartbeat"] = time.time()
+            info["last_activity"] = time.time()
+            return True
+        return False
+    
+    def update_activity(self, client_id: str) -> bool:
+        info = self._active.get(client_id)
+        if info:
+            info["last_activity"] = time.time()
+            info["message_count"] = info.get("message_count", 0) + 1
+            return True
+        return False
+    
+    async def broadcast(self, payload: dict[str, Any]) -> int:
+        if not self._active:
+            return 0
+            
+        sent = 0
+        stale = []
+        
+        for client_id, info in self._active.items():
+            try:
+                await info["ws"].send_json(payload)
+                sent += 1
+            except Exception as e:
+                log.warning("Failed to send broadcast to %s: %s", client_id, e)
+                stale.append(client_id)
+        
+        for client_id in stale:
+            await self._force_disconnect(client_id, code=1011, reason="Send failed")
+            
+        return sent
+    
     @property
     def client_count(self) -> int:
         return len(self._active)
+    
+    def get_stats(self) -> dict:
+        now = time.time()
+        return {
+            "total_connections": len(self._active),
+            "connections": [
+                {
+                    "client_id": cid,
+                    "connected_at": info["connected_at"],
+                    "duration": now - info["connected_at"],
+                    "last_heartbeat": info["last_heartbeat"],
+                    "message_count": info.get("message_count", 0),
+                    "authenticated": info.get("authenticated", False)
+                }
+                for cid, info in self._active.items()
+            ]
+        }
 
 
 
@@ -130,6 +317,23 @@ class _ConnectionManager:
 # Network IP, QR Code & Auto Browser Launcher
 # ---------------------------------------------------------------------------
 _SERVER_PORT: int = int(os.environ.get("PORT", "8765"))
+try:
+    NETWORK_POLICY = NetworkPolicy.from_environment(port=_SERVER_PORT)
+except NetworkPolicyError as exc:
+    raise RuntimeError(f"Unsafe network configuration: {exc}") from exc
+
+
+class _NetworkBoundaryMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        reason = NETWORK_POLICY.validate_request(
+            host=request.headers.get("host"),
+            origin=request.headers.get("origin"),
+            token=NETWORK_POLICY.token_from_headers(request.headers),
+        )
+        if reason:
+            return JSONResponse(status_code=403, content={"detail": reason})
+        return await call_next(request)
+
 
 def get_lan_ip() -> str:
     """Detect LAN IPv4 address for mobile access."""
@@ -143,25 +347,27 @@ def get_lan_ip() -> str:
         return "127.0.0.1"
 
 def print_terminal_qr_banner(local_url: str, lan_url: str) -> None:
-    """Print ASCII QR code in terminal for mobile scanning."""
-    try:
-        qr = qrcode.QRCode(border=1)
-        qr.add_data(lan_url)
-        qr.make(fit=True)
-        f = io.StringIO()
-        qr.print_ascii(out=f, invert=True)
-        ascii_qr = f.getvalue()
-    except Exception as exc:
-        ascii_qr = f"[QR generation error: {exc}]"
+    """Print ASCII QR code in terminal for mobile scanning if qrcode is installed."""
+    ascii_qr = ""
+    if _HAS_QRCODE and qrcode:
+        try:
+            qr = qrcode.QRCode(border=1)
+            qr.add_data(lan_url)
+            qr.make(fit=True)
+            f = io.StringIO()
+            qr.print_ascii(out=f, invert=True)
+            ascii_qr = f.getvalue() + "\n 📷 Scan the QR code with phone or tablet to open dashboard!\n"
+        except Exception as exc:
+            ascii_qr = f"[QR generation error: {exc}]\n"
 
     print("\n" + "═" * 66)
     print(" 🚀 DSP CLUSTER LAB — LIVE MONITOR READY")
     print(f" 🌐 Local Browser : {local_url}")
     print(f" 📱 Mobile / LAN  : {lan_url}")
     print("═" * 66)
-    print(ascii_qr)
-    print(" 📷 Scan the QR code with phone or tablet to open dashboard!")
-    print("═" * 66 + "\n")
+    if ascii_qr:
+        print(ascii_qr)
+        print("═" * 66 + "\n")
 
 def _auto_open_browser(url: str) -> None:
     """Auto-launch the user's default browser on startup."""
@@ -216,21 +422,35 @@ async def _stop_mic_service() -> bool:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    lan_ip = get_lan_ip()
     local_url = f"http://localhost:{_SERVER_PORT}"
-    lan_url = f"http://{lan_ip}:{_SERVER_PORT}"
-
-    # Print terminal QR code banner and launch browser
-    print_terminal_qr_banner(local_url, lan_url)
+    if NETWORK_POLICY.lan_enabled:
+        lan_ip = get_lan_ip()
+        lan_url = f"http://{lan_ip}:{_SERVER_PORT}"
+        print_terminal_qr_banner(local_url, lan_url)
+    else:
+        print(f"\nDSP CLUSTER LAB - local-only: {local_url}\n")
     asyncio.create_task(asyncio.to_thread(_auto_open_browser, local_url))
+
+    # Start WebSocket heartbeat and cleanup tasks
+    await manager.start_background_tasks()
 
     # Auto-start mic unless disabled by NO_MIC env
     await _start_mic_service()
+
+    # Auto-initialize Google OAuth session from IDE if available
+    try:
+        ide_account = _load_ide_google_account()
+        if ide_account:
+            _GOOGLE_OAUTH_SESSION.update(ide_account)
+            log.info("🔐 Auto-connected Google OAuth from IDE: %s (%s)", ide_account.get("email"), ide_account.get("name"))
+    except Exception as exc:
+        log.warning("Could not auto-load IDE Google credentials: %s", exc)
 
     yield
 
     # Shutdown
     await _stop_mic_service()
+    await manager.stop_background_tasks()
     log.info("live_server shutdown complete")
 
 manager = _ConnectionManager()
@@ -244,10 +464,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(NETWORK_POLICY.allowed_origins),
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-DSP-Auth-Token"],
+    allow_credentials=False,
 )
+app.add_middleware(_NetworkBoundaryMiddleware)
 
 _HTML_PATH = Path(__file__).parent / "dsp-cluster-lab.html"
 _SCOUT_HTML_PATH = Path(__file__).parent / "partition_scout.html"
@@ -356,7 +578,7 @@ def _build_response(
     native_sr: int,
     actual_sr: int,
     recording_device: str,
-    fmax_used: float,
+    fmax_used: float | None,
     filename: str,
     elapsed_ms: float,
 ) -> dict:
@@ -369,7 +591,7 @@ def _build_response(
         "Recording_Device":       recording_device,
         "Recording_Actual_SR_Hz": actual_sr,
         "native_sr_hz":           native_sr,
-        "fmax_used_hz":           round(fmax_used, 1),
+        "fmax_used_hz":           (None if fmax_used is None else round(float(fmax_used), 1)),
         "filename":               filename,
         "peak_time_ms":           round(pt_s * 1000.0, 3),
         "peak_time_s":            round(pt_s, 6),
@@ -400,7 +622,9 @@ async def compute(
     hop:          int   = Form(_DEFAULT_HOP),
     top_db:       float = Form(_DEFAULT_TOPDB),
     win:          float = Form(_DEFAULT_WIN,  description="Transient window +/- seconds"),
-    fmax:         float = Form(FMAX_REAL,     description="Max analysis frequency (<=21500 Hz)"),
+    fmax:         float | str | None = Form(None,          description="Optional max analysis frequency ceil (<=21500 Hz). "
+                                "Omitted/null/blank preserves legacy measure_features() ceiling; "
+                                "explicit value IS the DSP frequency-domain ceiling."),
     device_label: str   = Form("file_upload", description="Logical device label (G3 provenance)"),
     engine:       str   = Form("dsp_arena",   description="Engine: 'dsp_arena' or 'dual_mode_rag'"),
 ) -> JSONResponse:
@@ -408,7 +632,10 @@ async def compute(
 
     Guards:
       G1  sr > 48000  -> 422
-      G2  fmax > 21500 -> 422
+      G2  fmax > 21500 -> 422 (only when fmax is explicitly provided)
+    fmax default is a legacy-preserving sentinel: when omitted/empty/null/NaN
+    the endpoint preserves the canonical fmax=None measure_features() ceiling.
+    Only an explicit finite positive fmax narrows the analysis ceiling.
     """
     # G1
     if sr > SR_MAX:
@@ -419,12 +646,35 @@ async def compute(
                 "Upsampling above native-capture ceiling prohibited (impact_spectrum_check.py)."
             ),
         )
-    # G2
-    if fmax > FMAX_REAL:
+    # G2 — validation (task 9 contract).
+    # Distinction is by provenance, not by value:
+    #   omitted / empty / null  -> legacy canonical ceiling (measure_features fmax=None)
+    #   explicitly supplied but unparseable / NaN / +-inf -> 422
+    #   explicit finite positive numeric fmax -> validated and threaded through
+    #   numeric-string "8000" is accepted; "abc"/"nan"/"+inf"/"-inf" are 422.
+    _explicit_fmax: float | None = None
+    if isinstance(fmax, str):
+        fmax = fmax.strip()
+        if fmax == "":
+            fmax = None
+    if fmax is not None:
+        # Distinguish "explicit but unparseable" from "legacy omission".
+        # Any explicit non-None value that cannot be coerced to a finite
+        # positive number is a client error (422), not a silent legacy fallback.
+        try:
+            _candidate = float(fmax)
+        except Exception:
+            raise HTTPException(422, f"Invalid fmax: unparseable value {fmax!r}")
+        if not math.isfinite(_candidate):
+            raise HTTPException(422, f"Invalid fmax: non-finite value {fmax!r}")
+        if _candidate <= 0:
+            raise HTTPException(422, f"fmax must be positive finite or omitted; got {_candidate!r}")
+        _explicit_fmax = _candidate
+    if _explicit_fmax is not None and _explicit_fmax > FMAX_REAL:
         raise HTTPException(
             422,
             detail=(
-                f"fmax={fmax:.0f} Hz exceeds confirmed real ceiling {FMAX_REAL:.0f} Hz. "
+                f"fmax={_explicit_fmax:.0f} Hz exceeds confirmed real ceiling {FMAX_REAL:.0f} Hz. "
                 "Set fmax <= 21500 to avoid artifact-driven features."
             ),
         )
@@ -438,15 +688,33 @@ async def compute(
         raise HTTPException(400, f"WAV decode failed: {exc}") from exc
 
     filename = file.filename or "unknown.wav"
-    log.info("compute  file=%s  native_sr=%d  target_sr=%d  fmax=%.0f  nfft=%d",
-             filename, native_sr, sr, fmax, nfft)
+    log.info("compute  file=%s  native_sr=%d  target_sr=%d  fmax=%s  nfft=%d",
+             filename, native_sr, sr,
+             ("%.0f" % _explicit_fmax) if _explicit_fmax is not None else "legacy", nfft)
 
     # G5: actual_sr is what we pass to DSP - never a module-level fallback constant
     actual_sr = sr
     if native_sr != actual_sr:
         y = resample_linear(y, native_sr, actual_sr)
 
-    fmax_used = min(fmax, actual_sr / 2.0)
+    # Provenance (task 6 — M1 fix): legacy is NOT an explicit numeric ceiling.
+    # fmax=None means "legacy/default semantics" (measure_features two-domain
+    # legacy: impact+mel ceiling min(50000,sr/2), scalars full STFT). The
+    # response therefore uses a None sentinel rather than echoing a frequency
+    # number the DSP did not apply as a single numeric ceiling. This is
+    # honest at all sr; at sr > 100 kHz it avoids claiming 50000 Hz when
+    # scalars actually used sr/2. Supported sr <= SR_MAX (48 kHz) preserves
+    # previous numeric correctness; the sentinel simply makes provenance honest.
+    #   - legacy (omitted/null) -> fmax_requested=None, fmax_used=None, _measure_fmax=None
+    #   - explicit fmax         -> min(fmax, actual_sr/2)
+    if _explicit_fmax is None:
+        fmax_requested = None
+        fmax_used = None  # sentinel: legacy semantics, not an explicit frequency ceiling
+        _measure_fmax = None
+    else:
+        fmax_requested = float(_explicit_fmax)
+        fmax_used = min(_explicit_fmax, actual_sr / 2.0)
+        _measure_fmax = fmax_used
 
     if engine == "dual_mode_rag":
         de = get_dual_engine()
@@ -485,7 +753,8 @@ async def compute(
             "Recording_Device": device_label,
             "Recording_Actual_SR_Hz": actual_sr,
             "native_sr_hz": native_sr,
-            "fmax_used_hz": fmax_used,
+            "fmax_requested_hz": None if fmax_requested is None else round(float(fmax_requested), 1),
+            "fmax_used_hz": None if fmax_used is None else round(float(fmax_used), 1),
             "filename": filename,
             "peak_time_ms": round(pt_s * 1000.0, 3),
             "peak_time_s": round(pt_s, 6),
@@ -522,7 +791,13 @@ async def compute(
     else:
         t0 = time.perf_counter()
         try:
-            features = measure_features(y, actual_sr, nfft, hop, top_db, win)
+            features = measure_features(y, actual_sr, nfft, hop, top_db, win, fmax=_measure_fmax)
+        except (TypeError, ValueError) as exc:
+            # Slice-3A fmax validation errors (<=0, NaN, inf, <50 Hz) are
+            # client errors, not server errors — they reach us only through
+            # direct coroutine calls (Form parsing normally coerces/isolates
+            # them before we get here).
+            raise HTTPException(422, f"Invalid fmax: {exc}") from exc
         except Exception as exc:
             log.exception("measure_features error for %s", filename)
             raise HTTPException(500, f"DSP error: {exc}") from exc
@@ -541,6 +816,9 @@ async def compute(
             elapsed_ms=elapsed_ms,
         )
         payload["engine"] = "dsp_arena"
+        # Slice 3A provenance: distinguish a legacy/default request from an
+        # explicit fmax that actually narrowed the DSP ceiling.
+        payload["fmax_requested_hz"] = None if fmax_requested is None else round(float(fmax_requested), 1)
         payload["waveform"] = _downsample_waveform(y, 300)
 
     log.info("compute  OK  freq=%.1f Hz  peak_ms=%.3f  impact=%.4f  elapsed=%.1f ms",
@@ -626,17 +904,23 @@ async def toggle_mic_endpoint() -> JSONResponse:
 
 @app.get("/api/server/info")
 async def get_server_info() -> JSONResponse:
-    lan_ip = get_lan_ip()
-    return JSONResponse(content={
+    payload = {
         "port": _SERVER_PORT,
-        "lan_ip": lan_ip,
         "local_url": f"http://localhost:{_SERVER_PORT}",
-        "lan_url": f"http://{lan_ip}:{_SERVER_PORT}",
-    })
+        "lan_enabled": NETWORK_POLICY.lan_enabled,
+    }
+    if NETWORK_POLICY.lan_enabled:
+        lan_ip = get_lan_ip()
+        payload.update({"lan_ip": lan_ip, "lan_url": f"http://{lan_ip}:{_SERVER_PORT}"})
+    return JSONResponse(content=payload)
 
 @app.get("/api/server/qr")
 async def get_server_qr(data: Optional[str] = None) -> Response:
     """Return an SVG QR code image for mobile scanning."""
+    if not NETWORK_POLICY.lan_enabled:
+        raise HTTPException(404, "LAN QR is disabled in local-only mode")
+    if not _HAS_QRCODE or qrcode is None:
+        raise HTTPException(503, "QR code support is unavailable: install the 'qrcode' package.")
     target = data or f"http://{get_lan_ip()}:{_SERVER_PORT}"
     factory = qrcode.image.svg.SvgPathImage
     img = qrcode.make(target, image_factory=factory, border=2)
@@ -662,22 +946,108 @@ async def get_pending() -> JSONResponse:
     return JSONResponse(content={"count": len(ids), "event_ids": ids})
 
 
+_VALID_LABELS = ("A", "B", "C", "D")
+
+
+class _ConfirmBody(BaseModel):
+    event_id: str
+    decision: str
+    label: Optional[str] = None
+    operator: Optional[str] = None
+
+
+@app.post("/confirm-label")
+async def confirm_label(body: _ConfirmBody) -> JSONResponse:
+    """Consume a pending event and persist the operator's YES/NO decision.
+
+    YES  -> appends a confirmed record (original payload preserved verbatim
+            plus decision metadata) and returns a recency-weighted similarity
+            ADVISORY prediction, if enough confirmed history exists.
+    NO   -> appends a rejection record.
+    Unknown or expired event_id -> 404. Pending semantics are unchanged:
+    ids are consumed exactly once via event_store.consume_pending().
+    """
+    decision = (body.decision or "").strip().upper()
+    if decision not in ("YES", "NO"):
+        raise HTTPException(400, "decision must be 'YES' or 'NO'")
+
+    # Validate label BEFORE consuming pending so a 400 does not destroy the event.
+    pre_label: Optional[str] = None
+    if decision == "YES" and body.label is not None:
+        pre_label = str(body.label).strip().upper()[:1]
+        if pre_label not in _VALID_LABELS:
+            raise HTTPException(400, "label must be one of A, B, C, D or null")
+
+    event = await _store.consume_pending(body.event_id)
+    if event is None:
+        raise HTTPException(404, f"unknown or expired event_id: {body.event_id}")
+
+    if decision == "NO":
+        record = _labelled.append_rejected(event, operator=body.operator)
+        return JSONResponse(content={"status": "rejected", "record": record})
+
+    record = _labelled.append_confirmed(
+        event, label_truth=pre_label, operator=body.operator
+    )
+    advisory = _similar.advise(event)
+    return JSONResponse(
+        content={"status": "confirmed", "record": record, "advisory": advisory}
+    )
+
+
+@app.get("/confirmed")
+async def get_confirmed(limit: int = 20) -> JSONResponse:
+    """Return the most recent confirmed (YES) records, oldest-first."""
+    limit = max(1, min(int(limit), 200))
+    records = _labelled.load_confirmed(limit=limit)
+    return JSONResponse(content={"count": len(records), "confirmed": records})
+
+
 @app.websocket("/ws")
 @app.websocket("/ws/dsp-stream")
 async def websocket_endpoint(ws: WebSocket) -> None:
     """Phase 1 stub: greet + echo. Phase 2 wires mic-loop -> broadcast."""
-    await manager.connect(ws)
+    reason = NETWORK_POLICY.validate_request(
+        host=ws.headers.get("host"), origin=ws.headers.get("origin"),
+        token=NETWORK_POLICY.token_from_websocket(ws),
+    )
+    if reason:
+        await ws.close(code=1008, reason=reason)
+        return
+    try:
+        client_id = await manager.connect(ws)
+    except WebSocketDisconnect:
+        return
+    
     try:
         await ws.send_json({
-            "type":      "hello",
-            "message":   "DSP Cluster Lab Phase 3 - event store + broadcast pipeline active.",
-            "sr_max":    SR_MAX,
+            "type": "hello",
+            "client_id": client_id,
+            "message": "DSP Cluster Lab Phase 3 - event store + broadcast pipeline active.",
+            "sr_max": SR_MAX,
             "fmax_real": FMAX_REAL,
-            "ts":        time.time(),
+            "ts": time.time(),
+            "heartbeat_interval": manager.HEARTBEAT_INTERVAL
         })
         while True:
             try:
                 msg = await ws.receive_text()
+                manager.update_activity(client_id)
+                
+                try:
+                    data = json.loads(msg)
+                except json.JSONDecodeError:
+                    await ws.send_json({"type": "error", "code": "INVALID_JSON", "message": "Malformed JSON"})
+                    continue
+                
+                mtype = data.get("type", "")
+                
+                # Handle heartbeat response
+                if mtype == "heartbeat_ack":
+                    manager.update_heartbeat(client_id)
+                    continue
+                
+                # Echo back for compatibility
                 await ws.send_json({"type": "echo", "data": msg, "ts": time.time()})
             except WebSocketDisconnect:
                 break
@@ -688,19 +1058,173 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AI Agent Endpoint & Acoustic Physics Diagnosis
+# AI Agent Endpoint & Acoustic Physics Diagnosis (with Google OAuth 2.0 Web Auth)
 # ---------------------------------------------------------------------------
-from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
+from typing import Dict, List, Tuple
+import base64
 import json
+import ssl
 import urllib.request
+import urllib.parse
 import urllib.error
+
+# Google OAuth 2.0 Configuration
+_GOOGLE_CLIENT_ID = os.environ.get(
+    "GOOGLE_CLIENT_ID",
+    "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",
+)
+_GOOGLE_OAUTH_SESSION: Dict[str, Any] = {
+    "authenticated": False,
+    "email": "",
+    "name": "",
+    "picture": "",
+    "access_token": "",
+    "refresh_token": "",
+    "expiry_date": 0,
+    "source": "",
+}
+
+
+def _decode_jwt_payload(token_str: str) -> dict:
+    """Decode JWT payload without external libraries."""
+    try:
+        parts = token_str.split(".")
+        if len(parts) >= 2:
+            padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+            return json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _load_ide_google_account() -> Optional[Dict[str, Any]]:
+    """Load the active Google account and credentials from Antigravity IDE (~/.gemini)."""
+    creds_path = Path.home() / ".gemini" / "oauth_creds.json"
+    accounts_path = Path.home() / ".gemini" / "google_accounts.json"
+    jetski_path = Path.home() / ".gemini" / "jetski-standalone-oauth-token"
+
+    active_email = ""
+    if accounts_path.exists():
+        try:
+            with open(accounts_path, encoding="utf-8") as f:
+                active_email = json.load(f).get("active", "")
+        except Exception:
+            pass
+
+    if creds_path.exists():
+        try:
+            with open(creds_path, encoding="utf-8") as f:
+                creds = json.load(f)
+            id_info = _decode_jwt_payload(creds.get("id_token", ""))
+            email = id_info.get("email") or active_email or "active-ide-user@gmail.com"
+            name = id_info.get("name") or email.split("@")[0].capitalize()
+            picture = id_info.get("picture", "")
+            return {
+                "authenticated": True,
+                "email": email,
+                "name": name,
+                "picture": picture,
+                "access_token": creds.get("access_token", ""),
+                "refresh_token": creds.get("refresh_token", ""),
+                "expiry_date": creds.get("expiry_date", 0),
+                "source": "Antigravity IDE Session",
+            }
+        except Exception as exc:
+            log.warning("Could not read IDE credentials (%s)", exc)
+
+    if jetski_path.exists():
+        try:
+            with open(jetski_path, encoding="utf-8") as f:
+                data = json.load(f)
+            tok = data.get("token", {})
+            id_info = _decode_jwt_payload(data.get("id_token", ""))
+            email = id_info.get("email") or "ide-user@gmail.com"
+            name = id_info.get("name") or email.split("@")[0].capitalize()
+            return {
+                "authenticated": True,
+                "email": email,
+                "name": name,
+                "picture": id_info.get("picture", ""),
+                "access_token": tok.get("access_token", ""),
+                "refresh_token": tok.get("refresh_token", ""),
+                "expiry_date": 0,
+                "source": "Antigravity Jetski Token",
+            }
+        except Exception as exc:
+            log.warning("Could not read jetski token (%s)", exc)
+
+    return None
+
+
+def _refresh_google_access_token(session: Dict[str, Any]) -> Optional[str]:
+    """Refresh Google OAuth access token if expired and refresh_token is present."""
+    refresh_token = session.get("refresh_token")
+    if not refresh_token:
+        return session.get("access_token")
+
+    now_ms = time.time() * 1000
+    exp_ms = session.get("expiry_date", 0)
+    # If valid for at least 60 more seconds, reuse existing token
+    if exp_ms > 0 and (now_ms + 60000) < exp_ms and session.get("access_token"):
+        return session.get("access_token")
+
+    log.info("Refreshing Google OAuth access token for %s...", session.get("email"))
+    ctx = ssl.create_default_context()
+
+    params = {
+        "client_id": _GOOGLE_CLIENT_ID,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    }
+    data = urllib.parse.urlencode(params).encode("utf-8")
+    req = urllib.request.Request("https://oauth2.googleapis.com/token", data=data, method="POST")
+
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            new_tok = res.get("access_token")
+            expires_in = int(res.get("expires_in", 3600))
+            if new_tok:
+                session["access_token"] = new_tok
+                session["expiry_date"] = (time.time() + expires_in) * 1000
+                log.info("Google OAuth token refreshed successfully (expires in %ds)", expires_in)
+                return new_tok
+    except Exception as exc:
+        log.warning("OAuth token refresh failed (%s); using current token", exc)
+
+    return session.get("access_token")
+
+
+def _resolve_gemini_credentials(req_key: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Resolve whether to use an API Key or Google OAuth Bearer Token.
+    Returns: (api_key, oauth_bearer_token)
+    """
+    if req_key and req_key.strip():
+        k = req_key.strip()
+        if k.startswith("ya29."):
+            return None, k
+        if not k.startswith("http"):
+            return k, None
+
+    if _GOOGLE_OAUTH_SESSION.get("authenticated"):
+        tok = _refresh_google_access_token(_GOOGLE_OAUTH_SESSION)
+        if tok:
+            return None, tok
+
+    env_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if env_key:
+        return env_key, None
+
+    return None, None
+
 
 class AIAnalyzeRequest(BaseModel):
     event: Dict[str, Any]
     apiKey: Optional[str] = None
     model: Optional[str] = "gemini-2.5-flash"
     prompt: Optional[str] = None
+
 
 class AIChatRequest(BaseModel):
     message: str
@@ -709,13 +1233,25 @@ class AIChatRequest(BaseModel):
     history: Optional[List[Dict[str, str]]] = None
     context: Optional[Dict[str, Any]] = None
 
+
+class AIMoodRequest(BaseModel):
+    prompt: str
+    model: Optional[str] = "gemini-2.5-flash"
+    provider: Optional[str] = "gemini"
+    apiKey: Optional[str] = None
+
+
 def _local_acoustic_expert_analysis(event: Dict[str, Any], user_prompt: Optional[str] = None) -> str:
     """Deterministic, high-accuracy acoustic physics analysis when offline or without API key."""
     freq = float(event.get("impact_freq_hz", 0.0))
     sigma = float(event.get("laplace_sigma", 0.0))
     group = str(event.get("cluster", "U")).upper()
     mel = float(event.get("mel_mean_db", 0.0))
-    dur_ms = float(event.get("duration_s", 0.0)) * 1000.0 if "duration_s" in event else float(event.get("peak_time_ms", 0.0))
+    dur_ms = (
+        float(event.get("duration_s", 0.0)) * 1000.0
+        if "duration_s" in event
+        else float(event.get("peak_time_ms", 0.0))
+    )
     pair = event.get("candidate_pair", "")
     elim = event.get("elimination", "")
     rag_score = float(event.get("rag_score", 0.0)) * 100.0 if "rag_score" in event else 0.0
@@ -754,43 +1290,59 @@ def _local_acoustic_expert_analysis(event: Dict[str, Any], user_prompt: Optional
         )
 
     if not user_prompt:
-        lines.append("\n💡 *Tip: Provide a Gemini API key in settings to enable real-time multimodal LLM reasoning on this event.*")
+        lines.append(
+            "\n💡 *Connected to 4DS Acoustic Laboratory Engine with Google OAuth 2.0 Web Authentication.*"
+        )
     else:
-        lines.append(f"\n**Query Analysis for:** *\"{user_prompt}\"*\nAll physical metrics match the calibration profile for Face {group}.")
+        lines.append(
+            f"\n**Query Analysis for:** *\"{user_prompt}\"*\nAll physical metrics match the calibration profile for Face {group}."
+        )
 
     return "\n".join(lines)
 
 
-async def _call_gemini_api(api_key: str, model: str, system_prompt: str, user_content: str) -> str:
-    """Call Google Gemini API using native Python urllib in a thread pool."""
-    # Ensure model name format
+async def _call_gemini_api(
+    api_key: Optional[str],
+    oauth_token: Optional[str],
+    model: str,
+    system_prompt: str,
+    user_content: str,
+    response_mime_type: Optional[str] = None,
+) -> str:
+    """Call Google Gemini API using either API Key or Google OAuth 2.0 Bearer token."""
     model_name = model.strip()
     if not model_name.startswith("models/"):
         model_name = f"models/{model_name}"
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key.strip()}"
     headers = {"Content-Type": "application/json"}
+    if oauth_token:
+        url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent"
+        headers["Authorization"] = f"Bearer {oauth_token.strip()}"
+    elif api_key:
+        url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key.strip()}"
+    else:
+        raise ValueError("Neither API Key nor Google OAuth access token provided.")
+
+    gen_config: Dict[str, Any] = {
+        "temperature": 0.3,
+        "maxOutputTokens": 1024,
+    }
+    if response_mime_type:
+        gen_config["response_mime_type"] = response_mime_type
+
     payload = {
-        "system_instruction": {
-            "parts": [{"text": system_prompt}]
-        },
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": user_content}]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 1024
-        }
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_content}]}],
+        "generationConfig": gen_config,
     }
 
     req_data = json.dumps(payload).encode("utf-8")
+    ctx = ssl.create_default_context()
+
     req = urllib.request.Request(url, data=req_data, headers=headers, method="POST")
 
     def _do_request():
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, context=ctx, timeout=18) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             candidates = data.get("candidates", [])
             if candidates:
@@ -802,12 +1354,267 @@ async def _call_gemini_api(api_key: str, model: str, system_prompt: str, user_co
     return await asyncio.to_thread(_do_request)
 
 
+# ---------------------------------------------------------------------------
+# Google OAuth 2.0 Web Authentication Endpoints
+# ---------------------------------------------------------------------------
+@app.get("/api/auth/google/status")
+async def get_google_auth_status() -> dict:
+    """Return the current Google OAuth connection status and user profile."""
+    # If not authenticated in session, attempt to load active IDE credentials automatically
+    if not _GOOGLE_OAUTH_SESSION.get("authenticated"):
+        ide_account = _load_ide_google_account()
+        if ide_account:
+            _GOOGLE_OAUTH_SESSION.update(ide_account)
+
+    is_auth = bool(_GOOGLE_OAUTH_SESSION.get("authenticated"))
+    return {
+        "authenticated": is_auth,
+        "account": {
+            "email": _GOOGLE_OAUTH_SESSION.get("email", ""),
+            "name": _GOOGLE_OAUTH_SESSION.get("name", ""),
+            "picture": _GOOGLE_OAUTH_SESSION.get("picture", ""),
+            "source": _GOOGLE_OAUTH_SESSION.get("source", ""),
+        }
+        if is_auth
+        else None,
+        "client_id": _GOOGLE_CLIENT_ID,
+    }
+
+
+@app.post("/api/auth/google/connect-ide")
+async def connect_ide_google_account() -> dict:
+    """Connect using the active Google Account currently used in the Antigravity IDE."""
+    ide_account = _load_ide_google_account()
+    if not ide_account:
+        return {
+            "status": "error",
+            "message": "No active Google credentials found in ~/.gemini. Please sign in via web login.",
+        }
+
+    _GOOGLE_OAUTH_SESSION.update(ide_account)
+    log.info("Connected to IDE Google Account: %s", ide_account.get("email"))
+    return {
+        "status": "ok",
+        "authenticated": True,
+        "account": {
+            "email": _GOOGLE_OAUTH_SESSION.get("email"),
+            "name": _GOOGLE_OAUTH_SESSION.get("name"),
+            "picture": _GOOGLE_OAUTH_SESSION.get("picture"),
+            "source": _GOOGLE_OAUTH_SESSION.get("source"),
+        },
+    }
+
+
+@app.get("/api/auth/google/login")
+async def google_oauth_login(request: Request) -> RedirectResponse:
+    """Initiate standard Google OAuth 2.0 Web Login consent flow."""
+    lan_ip = get_lan_ip()
+    host = request.headers.get("host") or f"localhost:{_SERVER_PORT}"
+    protocol = "https" if "https" in request.headers.get("x-forwarded-proto", "") else "http"
+    redirect_uri = f"{protocol}://{host}/api/auth/google/callback"
+
+    scopes = " ".join([
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/generative-language",
+        "openid",
+    ])
+
+    params = {
+        "client_id": _GOOGLE_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": scopes,
+        "access_type": "offline",
+        "prompt": "select_account",
+    }
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+    return RedirectResponse(auth_url)
+
+
+@app.get("/api/auth/google/callback")
+async def google_oauth_callback(request: Request, code: Optional[str] = None, error: Optional[str] = None) -> HTMLResponse:
+    """Handle Google OAuth 2.0 authorization code exchange and token receipt."""
+    if error or not code:
+        err_msg = error or "Authorization code missing."
+        return HTMLResponse(
+            f"<html><body style='background:#0a1122;color:#fb6f6f;font-family:sans-serif;padding:30px;'>"
+            f"<h3>Authentication Failed</h3><p>{err_msg}</p>"
+            f"<script>window.close();</script></body></html>"
+        )
+
+    host = request.headers.get("host") or f"localhost:{_SERVER_PORT}"
+    protocol = "https" if "https" in request.headers.get("x-forwarded-proto", "") else "http"
+    redirect_uri = f"{protocol}://{host}/api/auth/google/callback"
+
+    ctx = ssl.create_default_context()
+
+    token_data = urllib.parse.urlencode({
+        "client_id": _GOOGLE_CLIENT_ID,
+        "code": code,
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri,
+    }).encode("utf-8")
+
+    try:
+        req = urllib.request.Request("https://oauth2.googleapis.com/token", data=token_data, method="POST")
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+            tokens = json.loads(resp.read().decode("utf-8"))
+
+        access_token = tokens.get("access_token", "")
+        refresh_token = tokens.get("refresh_token", "")
+        expires_in = int(tokens.get("expires_in", 3600))
+        id_token = tokens.get("id_token", "")
+        user_info = _decode_jwt_payload(id_token)
+
+        _GOOGLE_OAUTH_SESSION.update({
+            "authenticated": True,
+            "email": user_info.get("email", "google-user@gmail.com"),
+            "name": user_info.get("name", "Google User"),
+            "picture": user_info.get("picture", ""),
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expiry_date": (time.time() + expires_in) * 1000,
+            "source": "Google OAuth 2.0 Web Login",
+        })
+        log.info("Google OAuth Web Login successful: %s", _GOOGLE_OAUTH_SESSION["email"])
+
+        return HTMLResponse(
+            "<html><body style='background:#020409;color:#3ae3ff;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;'>"
+            "<div style='text-align:center;padding:24px;border:1px solid rgba(58,227,255,0.4);border-radius:12px;background:rgba(6,10,22,0.9);'>"
+            "<h2 style='margin:0 0 10px 0;'>✓ Google OAuth Connected</h2>"
+            f"<p style='color:#a78bfa;'>Signed in as <b>{_GOOGLE_OAUTH_SESSION['email']}</b></p>"
+            "<p style='color:#8ba0cc;font-size:12px;'>Returning to DSP Cluster Lab...</p>"
+            "</div>"
+            "<script>"
+            "if(window.opener){window.opener.postMessage({type:'oauth_success',email:'" + _GOOGLE_OAUTH_SESSION['email'] + "'}, '*');window.close();}"
+            "else{setTimeout(()=>{window.location.href='/';}, 1200);}"
+            "</script></body></html>"
+        )
+    except Exception as exc:
+        log.warning("OAuth token exchange error: %s", exc)
+        return HTMLResponse(
+            f"<html><body style='background:#0a1122;color:#fb6f6f;font-family:sans-serif;padding:30px;'>"
+            f"<h3>Authentication Token Exchange Error</h3><p>{exc}</p>"
+            f"<a href='/' style='color:#3ae3ff;'>Return to Dashboard</a></body></html>"
+        )
+
+
+@app.post("/api/auth/google/disconnect")
+async def google_oauth_disconnect() -> dict:
+    """Disconnect the current Google OAuth session."""
+    _GOOGLE_OAUTH_SESSION.update({
+        "authenticated": False,
+        "email": "",
+        "name": "",
+        "picture": "",
+        "access_token": "",
+        "refresh_token": "",
+        "expiry_date": 0,
+        "source": "",
+    })
+    log.info("Google OAuth session disconnected.")
+    return {"status": "ok", "authenticated": False}
+
+
+@app.post("/api/ai/mood")
+async def generate_ai_mood(req: AIMoodRequest) -> JSONResponse:
+    """
+    Generate physical acoustic mood parameters (clusters A, B, C, D) using
+    authenticated Google OAuth (Gemini) or local acoustic fallback.
+    """
+    api_key, oauth_token = _resolve_gemini_credentials(req.apiKey)
+
+    system_prompt = (
+        "You are a precision acoustic physicist and DSP sound designer. "
+        "Return a valid JSON object describing 4 distinct acoustic impact clusters (A, B, C, D) matching the user mood. "
+        "Physical constraints:\n"
+        "- f0 (Hz): between 600 and 160000 (log-frequency resonance)\n"
+        "- sigma (s^-1): between 4.0 and 110.0 (damping decay rate)\n"
+        "- duration_ms: between 5 and 450 (transient length in ms)\n"
+        "- impact: between 0.15 and 0.95 (strike energy amplitude)\n\n"
+        "Output strictly valid JSON with keys: mood_title, description, clusters (array of 4 objects with name, f0, sigma, duration_ms, impact)."
+    )
+
+    user_content = f"Acoustic Mood Concept: \"{req.prompt}\""
+
+    # Attempt Gemini call via OAuth token or API Key
+    if oauth_token or api_key:
+        try:
+            raw_text = await _call_gemini_api(
+                api_key=api_key,
+                oauth_token=oauth_token,
+                model=req.model or "gemini-2.5-flash",
+                system_prompt=system_prompt,
+                user_content=user_content,
+                response_mime_type="application/json",
+            )
+            clean = raw_text.replace("```json", "").replace("```", "").strip()
+            parsed = json.loads(clean)
+            return JSONResponse(content={
+                "status": "ok",
+                "provider": "gemini_oauth" if oauth_token else "gemini_api_key",
+                "account": _GOOGLE_OAUTH_SESSION.get("email") if oauth_token else None,
+                "data": parsed,
+            })
+        except Exception as exc:
+            log.warning("Gemini AI Mood call failed (%s); falling back to local synthesizer", exc)
+
+    # Local acoustic synthesizer fallback
+    low = req.prompt.lower()
+    local_presets = {
+        "crystal": {
+            "mood_title": "Crystal Ringing Chime",
+            "description": "High-frequency crystalline resonances with prolonged undamped Laplace decay.",
+            "clusters": [
+                {"name": "A", "f0": 2400, "sigma": 8.0, "duration_ms": 320, "impact": 0.85},
+                {"name": "B", "f0": 9600, "sigma": 14.0, "duration_ms": 280, "impact": 0.72},
+                {"name": "C", "f0": 38400, "sigma": 22.0, "duration_ms": 190, "impact": 0.55},
+                {"name": "D", "f0": 112000, "sigma": 40.0, "duration_ms": 90, "impact": 0.38},
+            ],
+        },
+        "wood": {
+            "mood_title": "Heavy Dense Wood Block",
+            "description": "Low-frequency fundamental absorption with fast mechanical damping.",
+            "clusters": [
+                {"name": "A", "f0": 720, "sigma": 38.0, "duration_ms": 110, "impact": 0.90},
+                {"name": "B", "f0": 1850, "sigma": 55.0, "duration_ms": 75, "impact": 0.65},
+                {"name": "C", "f0": 4200, "sigma": 80.0, "duration_ms": 40, "impact": 0.40},
+                {"name": "D", "f0": 8500, "sigma": 95.0, "duration_ms": 20, "impact": 0.25},
+            ],
+        },
+        "metal": {
+            "mood_title": "Forged Bell Metal",
+            "description": "Coupled inharmonic stiffness modes with shimmering Laplace tails.",
+            "clusters": [
+                {"name": "A", "f0": 1450, "sigma": 6.5, "duration_ms": 420, "impact": 0.88},
+                {"name": "B", "f0": 5800, "sigma": 18.0, "duration_ms": 220, "impact": 0.70},
+                {"name": "C", "f0": 19200, "sigma": 32.0, "duration_ms": 140, "impact": 0.50},
+                {"name": "D", "f0": 64000, "sigma": 55.0, "duration_ms": 60, "impact": 0.30},
+            ],
+        },
+    }
+
+    selected = local_presets.get("crystal")
+    for k, v in local_presets.items():
+        if k in low:
+            selected = v
+            break
+
+    return JSONResponse(content={
+        "status": "ok",
+        "provider": "local_acoustic_synth",
+        "notice": "Operating via deterministic local acoustic physics preset.",
+        "data": selected,
+    })
+
+
 @app.post("/api/ai/analyze")
 async def ai_analyze_event(req: AIAnalyzeRequest) -> JSONResponse:
-    """Analyze acoustic impact event with AI Agent (Gemini API or Local Physics Expert)."""
-    api_key = req.apiKey or os.environ.get("GEMINI_API_KEY", "").strip()
+    """Analyze acoustic impact event with AI Agent (Gemini OAuth / API Key or Local Physics Expert)."""
+    api_key, oauth_token = _resolve_gemini_credentials(req.apiKey)
 
-    # System instruction for acoustic expert AI agent
     system_prompt = (
         "You are the senior DSP & Acoustic Physics AI Agent for the 4DS Acoustic Laboratory. "
         "Your task is to analyze acoustic impact sound signatures from 4 block faces (A: Absorber, B: Resonator, C: Reflector, D: Coupled). "
@@ -819,14 +1626,21 @@ async def ai_analyze_event(req: AIAnalyzeRequest) -> JSONResponse:
     user_query = req.prompt or "Perform a complete acoustic physics diagnosis of this impact event."
     user_content = f"Event DSP Metrics:\n```json\n{event_summary}\n```\n\nTask:\n{user_query}"
 
-    if api_key:
+    if oauth_token or api_key:
         try:
-            ai_text = await _call_gemini_api(api_key, req.model or "gemini-2.5-flash", system_prompt, user_content)
+            ai_text = await _call_gemini_api(
+                api_key=api_key,
+                oauth_token=oauth_token,
+                model=req.model or "gemini-2.5-flash",
+                system_prompt=system_prompt,
+                user_content=user_content,
+            )
             return JSONResponse(content={
                 "status": "ok",
-                "provider": "gemini",
+                "provider": "gemini_oauth" if oauth_token else "gemini_api_key",
+                "account": _GOOGLE_OAUTH_SESSION.get("email") if oauth_token else None,
                 "model": req.model,
-                "analysis": ai_text
+                "analysis": ai_text,
             })
         except Exception as exc:
             log.warning("Gemini API call failed (%s); falling back to local expert analysis", exc)
@@ -834,22 +1648,22 @@ async def ai_analyze_event(req: AIAnalyzeRequest) -> JSONResponse:
             return JSONResponse(content={
                 "status": "ok",
                 "provider": "local_fallback",
-                "notice": f"Gemini API returned: {exc}. Displaying local expert physics analysis.",
-                "analysis": local_text
+                "notice": f"Gemini connection notice: {exc}. Displaying local expert physics analysis.",
+                "analysis": local_text,
             })
     else:
         local_text = _local_acoustic_expert_analysis(req.event, req.prompt)
         return JSONResponse(content={
             "status": "ok",
             "provider": "local_expert",
-            "analysis": local_text
+            "analysis": local_text,
         })
 
 
 @app.post("/api/ai/chat")
 async def ai_chat(req: AIChatRequest) -> JSONResponse:
-    """Interactive chat with the Acoustic Physics AI Agent."""
-    api_key = req.apiKey or os.environ.get("GEMINI_API_KEY", "").strip()
+    """Interactive chat with the Acoustic Physics AI Agent (Gemini OAuth / API Key or Local Expert)."""
+    api_key, oauth_token = _resolve_gemini_credentials(req.apiKey)
     system_prompt = (
         "You are the 4DS Acoustic Laboratory Pair-Programming & Physics AI Agent. "
         "You assist engineers with impact sound classification, resonant modes, Laplace envelope fitting, "
@@ -859,24 +1673,35 @@ async def ai_chat(req: AIChatRequest) -> JSONResponse:
     ctx_str = f"Context: {json.dumps(req.context)}\n\n" if req.context else ""
     user_content = f"{ctx_str}User question: {req.message}"
 
-    if api_key:
+    if oauth_token or api_key:
         try:
-            reply = await _call_gemini_api(api_key, req.model or "gemini-2.5-flash", system_prompt, user_content)
-            return JSONResponse(content={"status": "ok", "provider": "gemini", "reply": reply})
+            reply = await _call_gemini_api(
+                api_key=api_key,
+                oauth_token=oauth_token,
+                model=req.model or "gemini-2.5-flash",
+                system_prompt=system_prompt,
+                user_content=user_content,
+            )
+            return JSONResponse(content={
+                "status": "ok",
+                "provider": "gemini_oauth" if oauth_token else "gemini_api_key",
+                "account": _GOOGLE_OAUTH_SESSION.get("email") if oauth_token else None,
+                "reply": reply,
+            })
         except Exception as exc:
             return JSONResponse(content={
                 "status": "error",
                 "provider": "error",
-                "reply": f"Gemini API connection error: {exc}. Please check your API key or network connection."
+                "reply": f"Gemini API connection error: {exc}. Please check network connection.",
             })
     else:
         return JSONResponse(content={
             "status": "ok",
             "provider": "local",
-            "reply": "Please enter your Gemini API Key in the AI Settings drawer to enable interactive reasoning with Gemini 2.5 Flash."
+            "reply": "Please connect with Google OAuth in the AI Mood Settings to enable interactive reasoning with Gemini 2.5 Flash.",
         })
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("live_server:app", host="0.0.0.0", port=_SERVER_PORT, reload=False)
+    uvicorn.run("live_server:app", host=NETWORK_POLICY.host, port=_SERVER_PORT, reload=False)

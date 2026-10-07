@@ -222,13 +222,30 @@ def detect_transient_window(audio, sr, freq_threshold_hz=1000.0,
     return audio[start:end], center_idx, onset_idx, offset_idx, detected_duration_s
 
 
-def measure_features(y, sr, nfft, hop, top_db, win):
+def measure_features(y, sr, nfft, hop, top_db, win, fmax=None):
     """Return feature dict or None.
     Detects a >1kHz transient (ceiling 1.0s, impact is <0.5s), centers a ±0.5s window,
     then measures:
       - duration: RMS envelope decay (peak → 10%) from the full signal,
                   anchored to the detected transient region.
       - peak_time: 10%→90% rise time of the windowed transient itself.
+    Slice 3A — fmax is the upper boundary of frequency-domain analysis ONLY
+    (not an audio filter, resample, or transient-detector cutoff):
+      explicit fmax:  f_c = min(fmax, sr/2) bounds impact_freq_hz search,
+                      the mel filterbank (fmax=f_c, same STFT rows), and all
+                      scalar spectral descriptors.
+      fmax=None:      legacy pre-3A behavior preserved exactly — impact-freq
+                      band and mel keep ceiling min(50000, sr/2), scalar
+                      spectral descriptors keep the FULL STFT domain.
+    Time-domain features (impact, duration, peak_time, attack_slope, crest,
+    rms, zcr) are untouched by fmax in either branch.
+    hf_transient_ratio semantics (numeric recipe unchanged):
+      explicit fmax:  HF energy (>1000 Hz) / total retained-band energy,
+                      both computed ONLY over rows retained under f_c
+                      (S_for_spec / pf). Shrinking fmax therefore changes the
+                      ratio even when the absolute HF energy is fixed.
+      fmax=None:      pre-3A legacy semantics preserved exactly — HF energy
+                      (>1000 Hz) / total FULL-STFT energy over S.
     """
     # Validate input: must be 1D float array with finite values
     y = np.asarray(y, dtype=np.float64)
@@ -302,12 +319,42 @@ def measure_features(y, sr, nfft, hop, top_db, win):
     except Exception:
         duration = detect_dur if detect_dur > 0 else len(y) / sr
 
+    # --- Slice 3A: effective frequency ceiling (fmax-controlled) ---
+    # f_c is the single shared upper boundary for all frequency-domain analysis.
+    # Validated minimally: accept any finite positive fmax; clamp only by Nyquist
+    # to preserve physical correctness. Lower bound handling preserves the 200 Hz
+    # impact-frequency floor (band may become empty → freq = 0.0, no synthetic fallback).
+    if fmax is not None:
+        try:
+            _fmax_val = float(fmax)
+        except Exception:
+            raise TypeError("fmax must be a finite number or None")
+        if not np.isfinite(_fmax_val) or _fmax_val <= 0:
+            raise ValueError("fmax must be positive finite or None")
+        # Lower guard: below ~50 Hz the mel filterbank rows collapse to
+        # all-zero weights for many bands (librosa emits empty-filter rows and
+        # warns instead of raising), so mel_mean_db becomes degenerate.
+        # 50 Hz is a minimal sanity floor, NOT a semantic exclusion — the
+        # documented sweep values (500 Hz and up) always pass.
+        if _fmax_val < 50.0:
+            raise ValueError("fmax must be >= 50 Hz when supplied")
+        f_c = min(_fmax_val, sr / 2.0)
+    else:
+        # Legacy-preserving branch: fmax=None reproduces the pre-3A
+        # implementation exactly. The impact-frequency band and mel filterbank
+        # keep the historical 50 kHz ceiling (fhi = min(50000, sr/2)); the
+        # scalar spectral descriptors keep the FULL STFT domain (legacy code
+        # used pf = freq_bins[:S.shape[0]] / full S). At sr <= 100 kHz the
+        # 50 kHz ceiling is Nyquist or wider, so this is trivially identical;
+        # at sr > 100 kHz keeping the full scalar domain is required to
+        # remain bit-for-bit legacy-compatible. Only an explicit fmax
+        # actually truncates the scalar domain (see _full_band below).
+        f_c = min(50000.0, sr / 2.0)
     N = nfft
     X = np.fft.rfft(st, n=N)
     M = np.abs(X)
     freq_bins = np.fft.rfftfreq(N, d=1.0 / sr)
-    fhi = min(50000.0, sr / 2.0)
-    band = (freq_bins >= 200) & (freq_bins <= fhi)
+    band = (freq_bins >= 200) & (freq_bins <= f_c)
     Mb = M[band]
     if len(Mb) == 0:
         freq = 0.0
@@ -328,33 +375,94 @@ def measure_features(y, sr, nfft, hop, top_db, win):
     # so pad here to preserve browser semantics.
     st_for_stft = st if len(st) >= N else np.pad(st, (0, N - len(st)))
     S = np.abs(librosa.stft(st_for_stft, n_fft=N, hop_length=hop, center=False)) ** 2
-    mel = librosa.filters.mel(sr=sr, n_fft=N, n_mels=40, fmin=0.0,
-                              fmax=fhi, htk=True, norm=None)
-    melpow = np.maximum(mel @ S, np.finfo(np.float32).tiny)
-    mel_db = 10.0 * np.log10(melpow)
-    mel_mean_db = float(mel_db.mean())
-
-    pf = freq_bins[:S.shape[0]]
-    spec_sum = S.sum(axis=0)
-    cents = (pf[:, None] * S).sum(axis=0) / np.maximum(spec_sum, 1e-300)
-    spectral_centroid_hz = float(cents.mean()) if len(cents) else 0.0
-    bw = (((pf[:, None] - cents[None, :]) ** 2) * S).sum(axis=0)
-    spectral_bandwidth_hz = float(np.sqrt(bw / np.maximum(spec_sum, 1e-300)).mean())
-    # Vectorized spectral rolloff — no Python loop over frames (G7)
-    _cs = np.cumsum(S, axis=0)                          # (freq, T)
-    _tot = _cs[-1, :]                                    # (T,)
-    _valid = _tot > 0
-    _roll_bin = np.argmax(_cs >= 0.85 * _tot[np.newaxis, :], axis=0)
-    spectral_rolloff_hz = float(np.mean(pf[_roll_bin] * _valid))
-    flat = np.exp(np.mean(np.log(S + 1e-300), axis=0)) / np.maximum(np.mean(S, axis=0), 1e-300)
-    spectral_flatness = float(np.mean(flat))
+    # --- Slice 3A: restrict the frequency-domain analysis to f_c ---
+    # One shared ceiling: the STFT rows above f_c are excluded (not zeroed),
+    # and the mel filterbank is built with fmax=f_c over that same domain.
+    # Full-band (legacy) fast path preserves bit-for-bit arithmetic: when
+    # f_c covers the entire STFT band, reuse S/pf directly (no bool-mask copy)
+    # so the legacy rounding is unchanged.
+    pf_full = freq_bins[:S.shape[0]]
+    # Legacy path (fmax=None) always uses the full STFT domain for the scalar
+    # descriptors — truncation at 50 kHz applied ONLY to the mel filterbank
+    # and the impact-frequency search. Explicit fmax truncates everything.
+    _full_band = (fmax is None) or (
+        f_c >= float(pf_full[-1]) - 1e-12 if len(pf_full) else True
+    )
+    if _full_band:
+        pf = pf_full
+        S_for_spec = S
+        n_dom = S.shape[0]
+        mel = librosa.filters.mel(sr=sr, n_fft=N, n_mels=40, fmin=0.0,
+                                  fmax=f_c, htk=True, norm=None)
+        melpow = np.maximum(mel @ S, np.finfo(np.float32).tiny)
+        mel_db = 10.0 * np.log10(melpow)
+        mel_mean_db = float(mel_db.mean())
+        spec_sum = S_for_spec.sum(axis=0)
+        # Legacy arithmetic verbatim (1e-300 floors keep silence finite).
+        cents = (pf[:, None] * S_for_spec).sum(axis=0) / np.maximum(spec_sum, 1e-300)
+        spectral_centroid_hz = float(cents.mean()) if len(cents) else 0.0
+        bw_arr = (((pf[:, None] - cents[None, :]) ** 2) * S_for_spec).sum(axis=0)
+        spectral_bandwidth_hz = float(np.sqrt(bw_arr / np.maximum(spec_sum, 1e-300)).mean())
+        _cs = np.cumsum(S_for_spec, axis=0)                          # (freq, T)
+        _tot = _cs[-1, :]
+        _valid = _tot > 0
+        _roll_bin = np.argmax(_cs >= 0.85 * _tot[np.newaxis, :], axis=0)
+        spectral_rolloff_hz = float(np.mean(pf[_roll_bin] * _valid))
+        flat = np.exp(np.mean(np.log(S_for_spec + 1e-300), axis=0)) / np.maximum(np.mean(S_for_spec, axis=0), 1e-300)
+        spectral_flatness = float(np.mean(flat))
+    else:
+        _fmask = pf_full <= f_c
+        # Non-full-band: truncate once; mel and scalars share that row set.
+        if not np.any(_fmask):
+            S_dom = np.zeros((0, S.shape[1]), dtype=S.dtype)
+            pf = np.zeros(0, dtype=pf_full.dtype)
+            n_dom = 0
+        else:
+            S_dom = S[_fmask]
+            pf = pf_full[_fmask]
+            n_dom = S_dom.shape[0]
+        mel = librosa.filters.mel(sr=sr, n_fft=N, n_mels=40, fmin=0.0,
+                                  fmax=f_c, htk=True, norm=None)
+        # n_dom <= mel.shape[1] always in this branch (n_dom < S.shape[0]).
+        mel_dom = mel[:, :n_dom]
+        melpow = np.maximum(mel_dom @ S_dom, np.finfo(np.float32).tiny) \
+            if n_dom > 0 else np.full((40, S.shape[1]), np.finfo(np.float32).tiny)
+        mel_db = 10.0 * np.log10(melpow)
+        mel_mean_db = float(mel_db.mean())
+        S_for_spec = S_dom
+        spec_sum = S_for_spec.sum(axis=0)
+        if S_for_spec.shape[0] == 0:
+            # Empty analysis domain (all STFT rows excluded): legacy has no
+            # counterpart because legacy never truncated; use a finite
+            # documented zero rather than NaN from empty reductions.
+            spectral_centroid_hz = 0.0
+            spectral_bandwidth_hz = 0.0
+            spectral_rolloff_hz = 0.0
+            spectral_flatness = 0.0
+        else:
+            cents = (pf[:, None] * S_for_spec).sum(axis=0) / np.maximum(spec_sum, 1e-300)
+            spectral_centroid_hz = float(cents.mean()) if len(cents) else 0.0
+            bw_arr = (((pf[:, None] - cents[None, :]) ** 2) * S_for_spec).sum(axis=0)
+            spectral_bandwidth_hz = float(np.sqrt(bw_arr / np.maximum(spec_sum, 1e-300)).mean())
+            _cs = np.cumsum(S_for_spec, axis=0)                          # (freq, T) truncated
+            _tot = _cs[-1, :]
+            _valid = _tot > 0
+            _roll_bin = np.argmax(_cs >= 0.85 * _tot[np.newaxis, :], axis=0)
+            spectral_rolloff_hz = float(np.mean(pf[_roll_bin] * _valid))
+            flat = np.exp(np.mean(np.log(S_for_spec + 1e-300), axis=0)) / np.maximum(np.mean(S_for_spec, axis=0), 1e-300)
+            spectral_flatness = float(np.mean(flat))
     rms_energy = float(np.sqrt(np.mean(st * st)))
     signs = np.signbit(st)
     zcr = float(np.mean(signs[1:] != signs[:-1]))
     # --- hf_transient_ratio: HF (>1 kHz) power fraction (vectorized, G7) ---
-    hf_mask = freq_bins[:S.shape[0]] > 1000.0
-    hf_energy = float(S[hf_mask].sum())
-    total_energy = float(S.sum())
+    # Slice 3A semantics (numeric recipe unchanged from pre-3A):
+    #   explicit fmax -> HF energy (>1000 Hz) / total RETAINED-band energy
+    #                    (pf / S_for_spec only; see docstring). Retained-band
+    #                    relative by construction.
+    #   fmax=None      -> pre-3A legacy semantics exactly (full STFT domain).
+    hf_mask = pf > 1000.0  # rows retained up to f_c (fmin domain includes all HF-capable bins)
+    hf_energy = float(S_for_spec[hf_mask, :].sum()) if S_for_spec.size else 0.0
+    total_energy = float(S_for_spec.sum())
     hf_transient_ratio = hf_energy / max(total_energy, 1e-300)
     # --- crest_factor: peak / RMS (impulsiveness measure) ---
     peak_amp = float(np.max(np.abs(st)))
@@ -375,6 +483,22 @@ def measure_features(y, sr, nfft, hop, top_db, win):
         "crest_factor": crest_factor,
     }
 
+
+# ---------------------------------------------------------------------------
+# sr > 100 kHz — legacy compatibility decision (audit item 1):
+# The pre-3A descriptors split the ceiling into two domains: the mel
+# filterbank and the impact-frequency search used fhi = min(50000, sr/2),
+# while the scalar spectral descriptors (centroid, bandwidth, rolloff,
+# flatness, hf_transient_ratio) used the FULL STFT spectrum (pf =
+# freq_bins[:S.shape[0]]). To preserve legacy bit-for-bit at ALL sample
+# rates, fmax=None keeps that exact two-domain structure (see the
+# _full_band fast path: fmax is None -> always full STFT scalar domain,
+# mel built with fmax = min(50000, sr/2)). At sr <= 100 kHz the ceiling
+# is Nyquist or wider, so this is indistinguishable from "full band
+# everywhere"; at sr > 100 kHz (offline-only sr choices 192/384 kHz —
+# the canonical /compute route caps sr at 48000) fmax=None therefore
+# still matches the pinned pre-3A legacy reference, while an explicit fmax
+# genuinely truncates every frequency-domain feature to f_c.
 
 # ---------------------------------------------------------------------------
 # 2. labels + dataset
