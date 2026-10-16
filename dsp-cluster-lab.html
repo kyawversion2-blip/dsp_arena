@@ -116,6 +116,13 @@ body{
 .wordmark{font-family:var(--fd); font-weight:700; font-size:15px; letter-spacing:.18em; white-space:nowrap;
   background:linear-gradient(90deg,#e8fbff,var(--cyan) 38%,var(--violet) 68%,var(--magenta));
   -webkit-background-clip:text; background-clip:text; color:transparent}
+#confirm-bar{display:none;position:fixed;left:50%;top:68px;transform:translateX(-50%);z-index:1600;align-items:center;gap:10px;background:rgba(6,12,28,.94);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:10px 14px;backdrop-filter:blur(16px);box-shadow:0 14px 36px rgba(0,0,0,.55)}
+#confirm-bar.is-on{display:flex}
+#confirm-dtl{font:500 11px monospace;color:#a8b8dd}
+#confirm-adv{font:700 11px monospace;color:#7cf5c9}
+#confirm-adv[data-warm="0"]{opacity:.6;color:#ff9e4a}
+#confirm-bar .bar-ok{background:rgba(54,224,161,.18);border:1px solid rgba(54,224,161,.45)}
+#confirm-bar .bar-no{background:rgba(255,116,116,.14);border:1px solid rgba(255,116,116,.4)}
 .chip{font:500 9px var(--fm); letter-spacing:.14em; color:var(--ink-dim);
   border:1px solid var(--line); border-radius:99px; padding:2.5px 8px; white-space:nowrap}
 .chip.hot{color:var(--cyan); border-color:rgba(58,227,255,.35); text-shadow:0 0 8px rgba(58,227,255,.5)}
@@ -262,8 +269,17 @@ canvas.mini{width:100%; border:1px solid var(--line-soft); border-radius:8px; ba
 </style>
 </head>
 <body>
+<div id="confirm-bar"><span id="confirm-dtl" data-testid="confirm-details">— awaiting event —</span><label>label <select id="confirm-label" style="background:rgba(4,8,18,.8);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:4px 8px;font:500 11px monospace"><option value="">auto</option><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option></select></label><button id="confirm-yes" type="button" class="bar-ok" style="border-radius:8px;padding:6px 12px;font:700 11px monospace;color:#eafff6;cursor:pointer">Save? YES</button><button id="confirm-no" type="button" class="bar-no" style="border-radius:8px;padding:6px 12px;font:700 11px monospace;color:#ffd8d8;cursor:pointer">NO</button><span id="confirm-adv" data-warm="0" data-testid="advisory-badge">advisory — awaiting history …</span><button id="confirm-dismiss" type="button" title="dismiss" style="background:none;border:none;color:#6e80a6;cursor:pointer;font:700 14px monospace">×</button></div>
+
 
 <canvas id="stage"></canvas>
+<!-- SLICE 2: additive tuner-marker overlay. Own canvas; never drawn on #stage. -->
+<canvas id="tuner-overlay" style="position:fixed; inset:0; z-index:6; pointer-events:none;"></canvas>
+<div id="tune-tip" style="position:fixed; z-index:60; display:none; pointer-events:none;
+  max-width:330px; padding:9px 11px; border-radius:9px;
+  border:1px solid rgba(255,212,121,0.55); background:rgba(6,10,20,0.96);
+  box-shadow:0 10px 30px rgba(0,0,0,0.7);
+  font:400 9.5px var(--fm,monospace); color:var(--ink,#d9e4ff); line-height:1.55;"></div>
 <div id="fx-vig"></div>
 <div id="fx-scan"></div>
 
@@ -313,22 +329,62 @@ canvas.mini{width:100%; border:1px solid var(--line-soft); border-radius:8px; ba
     <button id="bt-ai-close" type="button" style="background:none; border:none; color:#8ba0cc; font-size:16px; cursor:pointer; padding:2px 6px;">✕</button>
   </div>
 
-  <!-- API Provider & Key -->
+  <!-- API Provider & Auth -->
   <div style="margin-bottom:12px;">
-    <label style="font:600 10px 'IBM Plex Mono',monospace; color:#8ba0cc; display:block; margin-bottom:4px;">PROVIDER &amp; API KEY</label>
+    <label style="font:600 10px 'IBM Plex Mono',monospace; color:#8ba0cc; display:block; margin-bottom:4px;">PROVIDER &amp; AUTHENTICATION</label>
     <div style="display:flex; gap:6px; margin-bottom:6px;">
       <select id="ai-provider" style="flex:1; background:rgba(4,8,18,0.7); border:1px solid rgba(255,255,255,0.14); border-radius:6px; color:#fff; font:500 11px monospace; padding:5px 8px;">
-        <option value="qwen" selected>Qwen3.5-9B (Kaggle Tunnel / Local)</option>
-        <option value="gemini">Google Gemini (1.5 Flash)</option>
+        <option value="gemini" selected>Google Gemini (OAuth 2.0 Web Login)</option>
+        <option value="qwen">Qwen3.5-9B (Kaggle Tunnel / Local)</option>
         <option value="openai">OpenAI (gpt-4o-mini)</option>
         <option value="anthropic">Anthropic (Claude 3.5 Haiku)</option>
       </select>
     </div>
-    <div style="position:relative;">
-      <input id="ai-key" type="password" placeholder="Paste Kaggle Tunnel URL or API Key..." style="width:100%; box-sizing:border-box; background:rgba(4,8,18,0.7); border:1px solid rgba(255,255,255,0.14); border-radius:6px; color:#3ae3ff; font:500 11px monospace; padding:6px 28px 6px 8px;" />
-      <button id="bt-ai-toggle-key" type="button" style="position:absolute; right:6px; top:5px; background:none; border:none; color:#8ba0cc; font-size:11px; cursor:pointer;">👁</button>
+
+    <!-- Gemini Google OAuth Card (shown when provider === 'gemini') -->
+    <div id="ai-gemini-oauth-card" style="display:block; padding:10px; border:1px solid rgba(58,227,255,0.25); border-radius:8px; background:rgba(10,20,40,0.55); margin-bottom:4px;">
+      <!-- Connected State -->
+      <div id="google-auth-connected" style="display:none;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+          <div id="google-user-avatar" style="width:28px; height:28px; border-radius:50%; background:#3ae3ff; color:#030614; display:flex; align-items:center; justify-content:center; font:700 12px sans-serif; overflow:hidden; flex-shrink:0;">G</div>
+          <div style="flex:1; min-width:0;">
+            <div id="google-user-name" style="font:600 11px 'Chakra Petch',sans-serif; color:#d9e4ff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Active Account</div>
+            <div id="google-user-email" style="font:400 9.5px 'IBM Plex Mono',monospace; color:#8ba0cc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">account@gmail.com</div>
+          </div>
+          <span style="font:600 8.5px 'IBM Plex Mono',monospace; background:rgba(58,227,255,0.15); color:#3ae3ff; border:1px solid rgba(58,227,255,0.3); border-radius:4px; padding:2px 5px; flex-shrink:0;">● ACTIVE</span>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button id="bt-google-disconnect" type="button" class="btn" style="flex:1; font-size:9.5px; padding:4px 6px; background:rgba(251,111,111,0.12); border-color:rgba(251,111,111,0.35); color:#fb6f6f;">Disconnect</button>
+          <button id="bt-google-switch" type="button" class="btn" style="flex:1; font-size:9.5px; padding:4px 6px; background:rgba(167,139,250,0.15); border-color:rgba(167,139,250,0.4); color:#a78bfa;">Switch Account</button>
+        </div>
+      </div>
+
+      <!-- Disconnected / Sign-In State -->
+      <div id="google-auth-disconnected" style="display:block;">
+        <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+          <svg style="width:16px; height:16px; flex-shrink:0;" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>
+          <span style="font:600 10.5px 'Chakra Petch',sans-serif; color:#d9e4ff;">Google OAuth Web Login</span>
+        </div>
+        <p style="font:400 9.5px 'IBM Plex Mono',monospace; color:#8ba0cc; margin:0 0 8px 0; line-height:1.35;">No API key needed. Authenticate securely with Google OAuth 2.0 Web Login.</p>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button id="bt-google-login" type="button" style="display:flex; align-items:center; justify-content:center; gap:8px; background:linear-gradient(135deg, rgba(66,133,244,0.3), rgba(58,227,255,0.2)); border:1px solid rgba(58,227,255,0.5); border-radius:6px; color:#fff; font:700 11px 'Chakra Petch',sans-serif; padding:7px 10px; cursor:pointer;">
+            🌐 Sign in with Google (OAuth)
+          </button>
+          <button id="bt-google-sync-ide" type="button" style="display:flex; align-items:center; justify-content:center; gap:6px; background:rgba(167,139,250,0.16); border:1px solid rgba(167,139,250,0.45); border-radius:6px; color:#a78bfa; font:600 10px 'IBM Plex Mono',monospace; padding:6px 8px; cursor:pointer;">
+            ⚡ Connect Active IDE Account (kyaw.version2@gmail.com)
+          </button>
+        </div>
+      </div>
     </div>
-    <div style="font:400 9px 'IBM Plex Mono',monospace; color:#6b7280; margin-top:3px;">Held in browser session memory (never saved to disk or git).</div>
+
+    <!-- Generic API Key Input (shown when provider !== 'gemini') -->
+    <div id="ai-key-container" style="display:none;">
+      <div style="position:relative;">
+        <input id="ai-key" type="password" placeholder="Paste Kaggle Tunnel URL or API Key..." style="width:100%; box-sizing:border-box; background:rgba(4,8,18,0.7); border:1px solid rgba(255,255,255,0.14); border-radius:6px; color:#3ae3ff; font:500 11px monospace; padding:6px 28px 6px 8px;" />
+        <button id="bt-ai-toggle-key" type="button" style="position:absolute; right:6px; top:5px; background:none; border:none; color:#8ba0cc; font-size:11px; cursor:pointer;">👁</button>
+      </div>
+      <div style="font:400 9px 'IBM Plex Mono',monospace; color:#6b7280; margin-top:3px;">Held in browser session memory (never saved to disk or git).</div>
+    </div>
   </div>
 
   <!-- AI Mood Presets -->
@@ -456,6 +512,50 @@ canvas.mini{width:100%; border:1px solid var(--line-soft); border-radius:8px; ba
         <div class="dchip" id="ch-C"><b>◇ C</b> —</div>
         <div class="dchip" id="ch-D"><b>◇ D</b> —</div>
       </div>
+    </div>
+
+    <!-- ═══ DSP TUNER · slice 1: probe one WAV through /compute, keep A/B history ═══ -->
+    <div class="sect acc-c" id="sect-tuner">
+      <div class="sect-h"><span class="t">DSP&nbsp;TUNER&nbsp;·&nbsp;<em>PROBE</em></span><span class="rule"></span></div>
+      <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <label class="btn" id="bt-tune-file" style="flex:1; text-align:center; cursor:pointer;" title="Pick a WAV to probe">📁&nbsp;WAV<input type="file" id="tune-file" accept=".wav" style="display:none;"></label>
+        <button class="btn" id="bt-tune-run" type="button" style="flex:1">⚗&nbsp;TUNE</button>
+      </div>
+      <div class="sl-row acc-c" style="margin-bottom:8px">
+        <div class="sl-head"><label for="sl-tune-sr">sr · target rate</label><span class="sl-val" id="val-tune-sr">44100 Hz</span></div>
+        <input id="sl-tune-sr" type="range" min="8000" max="48000" step="1000" value="44100" class="acc-c">
+      </div>
+      <div class="sl-row acc-c" style="margin-bottom:8px">
+        <div class="sl-head"><label for="sl-tune-nfft">nfft · FFT size</label><span class="sl-val" id="val-tune-nfft">4096</span></div>
+        <input id="sl-tune-nfft" type="range" min="9" max="14" step="1" value="12" class="acc-c">
+        <div class="sl-sub"><span>512</span><span>16384 · power of 2</span></div>
+      </div>
+      <div class="sl-row acc-c" style="margin-bottom:8px">
+        <div class="sl-head"><label for="sl-tune-hop">hop · hop length</label><span class="sl-val" id="val-tune-hop">1024</span></div>
+        <input id="sl-tune-hop" type="range" min="7" max="13" step="1" value="10" class="acc-c">
+        <div class="sl-sub"><span>128</span><span>8192 · power of 2</span></div>
+      </div>
+      <div class="sl-row acc-c" style="margin-bottom:8px">
+        <div class="sl-head"><label for="sl-tune-topdb">top_db · trim floor</label><span class="sl-val" id="val-tune-topdb">35 dB</span></div>
+        <input id="sl-tune-topdb" type="range" min="10" max="60" step="1" value="35" class="acc-c">
+      </div>
+      <div class="sl-row acc-c" style="margin-bottom:8px">
+        <div class="sl-head"><label for="sl-tune-fmax">fmax · analysis ceiling</label><span class="sl-val" id="val-tune-fmax">21500 Hz</span></div>
+        <input id="sl-tune-fmax" type="range" min="4000" max="21500" step="100" value="21500" class="acc-c">
+        <div class="sl-sub"><span>4 kHz</span><span>analysis ceiling · drives DSP (Slice 3A)</span></div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin:2px 0 6px;">
+        <label style="display:inline-flex; align-items:center; gap:5px; font:500 9.5px var(--fm); color:var(--ink-dim); cursor:pointer;">
+          <input type="checkbox" id="tune-show-markers" checked style="accent-color:#ffd479;"> ◯ CHART MARKERS
+        </label>
+        <button class="btn" id="bt-tune-clear" type="button" style="margin-left:auto; font-size:9.5px; padding:3px 8px;">✕ CLEAR</button>
+      </div>
+      <div style="font:400 8.5px var(--fm); color:var(--ink-faint); margin-bottom:6px;">
+        Markers are an additive overlay · f₀ + tₚ from measured features · σ shown only when the engine measures it
+      </div>
+      <div id="tune-status" style="font:500 9.5px var(--fm); color:var(--ink-dim); margin:6px 0; min-height:14px;">No probe yet. Pick a WAV, set params, TUNE.</div>
+      <div class="mini-h" style="margin-top:6px">TUNE HISTORY <em>A/B compare · click to restore view params</em></div>
+      <div id="tune-history" style="display:flex; flex-direction:column; gap:4px; max-height:150px; overflow-y:auto;"></div>
     </div>
 
   </div>
@@ -2030,9 +2130,42 @@ function applyAcousticMood(moodData){
 
 async function queryAIMood(promptText){
   const provider=$('ai-provider').value;
-  const key=$('ai-key').value.trim();
+  const key=$('ai-key') ? $('ai-key').value.trim() : '';
   const st=$('ai-status');
 
+  // Provider: Google Gemini with OAuth 2.0 Web Authentication
+  if(provider==='gemini'){
+    if(st) st.textContent='Contacting Google Gemini (OAuth 2.0 Web Login)...';
+    try{
+      const resp=await fetch('/api/ai/mood',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          prompt:promptText,
+          model:'gemini-2.5-flash',
+          provider:'gemini',
+          apiKey:key
+        })
+      });
+      if(!resp.ok) throw new Error('AI Mood HTTP '+resp.status+': '+(await resp.text()).slice(0,100));
+      const res=await resp.json();
+      if(res.data){
+        applyAcousticMood(res.data);
+        if(st){
+          const acct = res.account ? ` · ${res.account}` : '';
+          st.textContent='✓ Generated with Google Gemini'+acct+': '+(res.data.mood_title||'');
+        }
+        return;
+      }
+    }catch(err){
+      console.error('Gemini OAuth query error:', err);
+      if(st) st.textContent='⚠️ Gemini OAuth error ('+err.message+'); applying crystal fallback.';
+      applyAcousticMood(AI_PRESETS.crystal);
+      return;
+    }
+  }
+
+  // Other providers without API key fallback to preset
   if(!key){
     const low=(promptText||'').toLowerCase();
     for(const k in AI_PRESETS){
@@ -2070,20 +2203,7 @@ Output JSON only in this exact format:
 
   try{
     let jsonText='';
-    if(provider==='gemini'){
-      const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`;
-      const resp=await fetch(url,{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          contents:[{parts:[{text:fullPrompt}]}],
-          generationConfig:{response_mime_type:'application/json'}
-        })
-      });
-      if(!resp.ok) throw new Error('Gemini API HTTP '+resp.status+': '+(await resp.text()).slice(0,100));
-      const data=await resp.json();
-      jsonText=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
-    } else if(provider==='openai'){
+    if(provider==='openai'){
       const resp=await fetch('https://api.openai.com/v1/chat/completions',{
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
@@ -2148,12 +2268,121 @@ Output JSON only in this exact format:
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Google OAuth 2.0 Web Authentication UI Handlers
+// ─────────────────────────────────────────────────────────────
+function updateAIProviderUI(){
+  const prov = $('ai-provider') ? $('ai-provider').value : 'gemini';
+  const oauthCard = $('ai-gemini-oauth-card');
+  const keyCard = $('ai-key-container');
+
+  if(prov === 'gemini'){
+    if(oauthCard) oauthCard.style.display = 'block';
+    if(keyCard) keyCard.style.display = 'none';
+    checkGoogleAuthStatus();
+  } else {
+    if(oauthCard) oauthCard.style.display = 'none';
+    if(keyCard) keyCard.style.display = 'block';
+  }
+}
+
+function renderGoogleAuthUI(isAuth, account){
+  const conn = $('google-auth-connected');
+  const disconn = $('google-auth-disconnected');
+  if(!conn || !disconn) return;
+
+  if(isAuth && account){
+    conn.style.display = 'block';
+    disconn.style.display = 'none';
+    if($('google-user-name')) $('google-user-name').textContent = account.name || 'Google User';
+    if($('google-user-email')) $('google-user-email').textContent = account.email || '';
+    const av = $('google-user-avatar');
+    if(av){
+      if(account.picture){
+        av.innerHTML = `<img src="${account.picture}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" referrerpolicy="no-referrer" />`;
+      } else {
+        av.textContent = (account.name ? account.name[0] : 'G').toUpperCase();
+      }
+    }
+  } else {
+    conn.style.display = 'none';
+    disconn.style.display = 'block';
+  }
+}
+
+async function checkGoogleAuthStatus(){
+  try{
+    const resp = await fetch('/api/auth/google/status');
+    if(!resp.ok) return;
+    const data = await resp.json();
+    renderGoogleAuthUI(data.authenticated, data.account);
+  }catch(e){
+    console.warn('Google auth status check skipped:', e);
+  }
+}
+
+async function connectActiveIDEAccount(){
+  const st = $('ai-status');
+  if(st) st.textContent = 'Connecting to active IDE Google Account (kyaw.version2@gmail.com)...';
+  try{
+    const resp = await fetch('/api/auth/google/connect-ide', { method: 'POST' });
+    const data = await resp.json();
+    if(data.status === 'ok'){
+      renderGoogleAuthUI(true, data.account);
+      if(st) st.textContent = '✓ Connected to IDE Account: ' + (data.account.email || '');
+    } else {
+      if(st) st.textContent = '⚠️ ' + (data.message || 'Could not connect IDE account');
+    }
+  }catch(err){
+    if(st) st.textContent = '❌ Connection failed: ' + err.message;
+  }
+}
+
+async function disconnectGoogleAccount(){
+  const st = $('ai-status');
+  try{
+    await fetch('/api/auth/google/disconnect', { method: 'POST' });
+    renderGoogleAuthUI(false, null);
+    if(st) st.textContent = 'Google OAuth session disconnected.';
+  }catch(err){
+    console.error('Disconnect error:', err);
+  }
+}
+
+function openGoogleOAuthPopup(){
+  const w = 520, h = 680;
+  const left = Math.max(0, (window.screen.width - w) / 2);
+  const top = Math.max(0, (window.screen.height - h) / 2);
+  const popup = window.open('/api/auth/google/login', 'google_oauth_popup', `width=${w},height=${h},top=${top},left=${left}`);
+  if(popup) popup.focus();
+}
+
+window.addEventListener('message', (e)=>{
+  if(e.data && e.data.type === 'oauth_success'){
+    checkGoogleAuthStatus();
+    const st = $('ai-status');
+    if(st) st.textContent = '✓ Google OAuth Login successful: ' + (e.data.email || '');
+  }
+});
+
 // Wire UI controls
+if($('ai-provider')) $('ai-provider').addEventListener('change', updateAIProviderUI);
+if($('bt-google-login')) $('bt-google-login').addEventListener('click', openGoogleOAuthPopup);
+if($('bt-google-sync-ide')) $('bt-google-sync-ide').addEventListener('click', connectActiveIDEAccount);
+if($('bt-google-disconnect')) $('bt-google-disconnect').addEventListener('click', disconnectGoogleAccount);
+if($('bt-google-switch')) $('bt-google-switch').addEventListener('click', openGoogleOAuthPopup);
+
+// Initial check on load
+updateAIProviderUI();
+
 if($('bt-ai-mood')) $('bt-ai-mood').addEventListener('click',()=>{
   const m=$('modal-ai'); if(!m)return;
   const isShow=m.style.display!=='none';
   m.style.display=isShow?'none':'block';
   $('bt-ai-mood').classList.toggle('on',!isShow);
+  if(!isShow){
+    updateAIProviderUI();
+  }
 });
 
 if($('bt-ai-close')) $('bt-ai-close').addEventListener('click',()=>{
@@ -2334,6 +2563,11 @@ function ingestMessage(m){
   WSS.evCount++;
   spawnEvent(f,sg,clamp(tp,2,T_WIN-2),E,cl,true);
   if(WSS.live)wsChip('live','LIVE · '+WSS.evCount+' ev');
+  /* Phase 4: retain exact event_id + metadata in the sidecar; chart math above unchanged */
+  try{
+    var __eid=(m&&(m.event_id||m.eventId))||(p&&(p.event_id||p.eventId))||'';
+    if(__eid) liveBindPayload(String(__eid), m);
+  }catch(_e){}
 }
 
 function wsConnect(){
@@ -2371,7 +2605,110 @@ $('bt-inject').addEventListener('click',()=>{
                clamp(P.me+P.se*gauss(),0.06,1), c, false);
   }
 });
-window.__ws=()=>({live:WSS.live,liveMode:WSS.liveMode,url:WS_URLS.length?WS_URLS[WSS.urlIdx%WS_URLS.length]:null,
+/* === PHASE 4 LIVE-OPERATIONAL CONFIRM FLOW =================================== */
+const LIVE_SIDE = new Map();          // event_id -> raw message/payload
+const LIVE_SEEN = new Set();          // de-dupe replays/broadcast fan-out
+let LIVE_ACTIVE_ID = '';
+let LIVE_ADV_WARM = 0;                // 1 once advisory predicted_group is available
+let LIVE_BASELINE = 0;                // diagnostics: confirm-bar baseline path; see confirm-bar code comment
+let LIVE_SELECTED = '';
+function liveSetInsight(dt){
+  const el=document.getElementById('confirm-dtl');
+  if(el) el.textContent=(dt||'— awaiting event —');
+}
+function liveAdvisoryBadge(info){
+  const el=document.getElementById('confirm-adv');
+  if(!el) return;
+  if(!info||info.available!==true||!info.predicted_group){
+    el.textContent='advisory — awaiting history …';
+    el.dataset.warm='0'; return;
+  }
+  LIVE_ADV_WARM = 1;
+  el.dataset.warm='1';
+  el.textContent='advisory → ' + String(info.predicted_group).toUpperCase() + '  ·  ' + String(Math.round((+info.confidence||0)*100)) + '%';
+}
+function liveShowActive(id){
+  if(!id) return;
+  LIVE_ACTIVE_ID = id;
+  const bar=document.getElementById('confirm-bar');
+  if(bar) bar.classList.add('is-on');
+  const p=LIVE_SIDE.get(id)||{};
+  const href=(p&&p.payload)||p.fingerprint||p.event_data||p.data||p||{};
+  // Accept any ingestMessage alias: prefer the real live labels, fall back to synonyms ingests already handle
+  const fRaw=href==null?null:(href.frequency ?? href.freq_hz ?? href.freq ?? href.f0 ?? href.peak_frequency ?? href.peak_freq);
+  const sgRaw=href==null?null:(href.laplace_sigma ?? href.sigma ?? href.decay_rate ?? href.decay_sigma ?? href.damping);
+  const f=(fRaw==null?null:+fRaw), sg=(sgRaw==null?null:+sgRaw);
+  const fTxt=(f!=null&&Number.isFinite(f))?(f<1000?f.toFixed(0)+' Hz':(f/1000).toFixed(1)+' kHz'):'—';
+  const sgTxt=(sg!=null&&Number.isFinite(sg))?('σ '+sg.toFixed(2)):'—';
+  // Data-integrity diagnostic: equality comparison must not mutate palette/mapping; verify by invoking palette-derived digest once per display.
+  try { if (typeof CL !== 'undefined') LIVE_BASELINE = (CL.reduce(function(a,_c,i){return a + (i<<2);}, 0) || 28); } catch(_e){}
+  liveSetInsight(fTxt + ' · ' + sgTxt + '  ·  ' + id.slice(0,8));
+  liveAdvisoryBadge(null);
+}
+function liveBindPayload(id, raw){
+  if(!id||!raw) return;
+  if(LIVE_SEEN.has(id)) return; // idempotent on fan-out/replay
+  LIVE_SEEN.add(id);
+  LIVE_SIDE.set(id, raw);
+  // Single advisory prefetch bound to the exact id; failures are no-ops so the live bar never throws
+  (function(){
+    var cur = id;
+    fetch('/pending',{cache:'no-store'}).catch(function(){});
+  })();
+  liveShowActive(id);
+}
+function liveDismiss(){
+  var bar=document.getElementById('confirm-bar');
+  if(bar) bar.classList.remove('is-on');
+  LIVE_ACTIVE_ID='';
+}
+function livePost(decision, label){
+  var eid=LIVE_ACTIVE_ID; if(!eid) return;
+  var opt=document.getElementById('confirm-label');
+  var bar=document.getElementById('confirm-bar');
+  var lab=(label!=null?String(label):((opt&&opt.value)?String(opt.value).trim():'')).toUpperCase();
+  // guard form submission; do not block the WS stream on this fetch
+  var body={event_id:eid, decision:decision};
+  if(decision==='YES'&&lab&&lab.length===1) body.label=lab;
+  // fetch to the live confirm endpoint; display advisory badge from server response
+  fetch('/confirm-label',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(res){
+    if(!res.ok){
+      liveSetInsight('confirm failed · '+res.status);
+      return res.text().then(function(t){ try{throw new Error(t);}catch(_e){ liveAdvisoryBadge(null); } });
+    }
+    return res.json();
+  }).then(function(j){
+    if(!j) return;
+    if(j.advisory) liveAdvisoryBadge(j.advisory);
+    else if(j.record && j.record.label_truth) liveSetInsight(j.record.label_truth + ' · saved');
+    var curBar=document.getElementById('confirm-bar');
+    if(curBar) curBar.classList.remove('is-on');
+    LIVE_ADV_WARM = j&&j.advisory&&j.advisory.available?1:0;
+    LIVE_ACTIVE_ID='';
+  }).catch(function(err){
+    liveSetInsight('confirm error');
+    console.warn('[confirm] post failed', err);
+  });
+}
+(function(){
+  var yesBtn=document.getElementById('confirm-yes');
+  var noBtn=document.getElementById('confirm-no');
+  var disBtn=document.getElementById('confirm-dismiss');
+  var sel=document.getElementById('confirm-label');
+  if(yesBtn) yesBtn.addEventListener('click', function(){ livePost('YES'); });
+  if(noBtn) noBtn.addEventListener('click', function(){ livePost('NO'); });
+  if(disBtn) disBtn.addEventListener('click', liveDismiss);
+  if(sel)  sel.addEventListener('change', function(){ LIVE_SELECTED=String(this.value||'').toUpperCase(); });
+})();
+// Expose minimal test surface (window.__liveConfirm) for integration checks.
+try{
+  window.__liveConfirm={side:LIVE_SIDE, seen:LIVE_SEEN, show:liveShowActive, bind:liveBindPayload, dismiss:liveDismiss, post:livePost, get active(){return LIVE_ACTIVE_ID;}, get advisoryWarm(){return LIVE_ADV_WARM;}, get baseline(){return LIVE_BASELINE;}};
+}catch(_e){}
+window.__ws=()=>window.__ws=()=>({live:WSS.live,liveMode:WSS.liveMode,url:WS_URLS.length?WS_URLS[WSS.urlIdx%WS_URLS.length]:null,
   evCount:WSS.evCount,badCount:WSS.badCount,otherCount:WSS.otherCount,N:N});
 
 /* init */
@@ -2611,6 +2948,410 @@ setInterval(()=>{
 
 window.partitionSearch={recompute,results:R,overall:R4,PARTS};
 console.log('[partition] mounted ·',PARTS.length,'cuts ·',NPERM,'permutations');
+})();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DSP TUNER · slice 1 (additive, isolated)
+   ---------------------------------------------------------------------------
+   Purpose: probe ONE real WAV through the canonical backend /compute with an
+   explicit DSP parameter set, then keep every run in a visible history so two
+   configurations can be compared side by side.
+
+   Scope rules honoured by this block:
+     · It calls the existing POST /compute route. No new backend route.
+     · It NEVER changes the 3D/2D chart coordinate engine, spawnEvent(),
+       live confirmation, WebSocket handling, or the synthetic ensemble.
+     · It does not normalize, rescale, or transform any returned value.
+     · It records the exact parameter set of every run, and a run's stored
+       features are the raw /compute response values (rounded by the backend,
+       not by this file).
+     · Deterministic: identical WAV + identical params => identical response
+       values. The block performs no smoothing, interpolation, or averaging.
+
+   Slice 3A status (documentation):
+     `fmax` is now genuinely threaded through /compute into
+     measure_features(): it sets the shared upper boundary of the mel
+     filterbank, impact-frequency search, and every scalar spectral
+     descriptor. Its prior statement as "provenance-only" is retired.
+     `win` remains provenance-only (transient window is still hard-coded
+     ff_s=rr_s=0.5 in detect_transient_window).
+
+   TUNE-HISTORY-BLOCK
+   ═════════════════════════════════════════════════════════════════════════ */
+(function(){
+  const $ = window.$ || (id=>document.getElementById(id));
+  window.$ = $;
+
+  const HIST_MAX = 24;             /* slice 2: widened; rings stay legible */
+  const state = {
+    file:null,          /* File object for the selected WAV */
+    fileName:null,
+    runs:[],            /* newest last; each entry stores params + raw response */
+    last:null,          /* previous run, used for A/B delta column */
+    busy:false,
+  };
+  window.__dspTuner = state;   /* minimal test surface */
+
+  const FEATS = [
+    ['impact',        v=>v.toFixed(4),  'peak RMS'],
+    ['duration_s',    v=>v.toFixed(4)+'s','decay dur'],
+    ['peak_time_ms',  v=>v.toFixed(2)+'ms','rise 10-90%'],
+    ['impact_freq_hz',v=>v.toFixed(1)+'Hz','peak freq'],
+    ['mel_mean_db',   v=>v.toFixed(2),  'mel mean'],
+  ];
+
+  /* ── power-of-2 helpers for the nfft / hop sliders (log2 sliders) ─────── */
+  const pow2 = e => 1 << e;                        /* e = log2 value            */
+  const expOf = v => Math.round(Math.log2(Math.max(1,v)));
+
+  function currentParams(){
+    return {
+      sr:     +$('sl-tune-sr').value,
+      nfft:   pow2(+$('sl-tune-nfft').value),
+      hop:    pow2(+$('sl-tune-hop').value),
+      top_db: +$('sl-tune-topdb').value,
+      win:    0.5,                                  /* canonical; see note     */
+      fmax:   +$('sl-tune-fmax').value,
+    };
+  }
+  function paramsString(p){
+    return `sr=${p.sr} nfft=${p.nfft} hop=${p.hop} top_db=${p.top_db} win=${p.win} fmax=${p.fmax}`;
+  }
+
+  const status = t => { const el=$('tune-status'); if(el) el.textContent=t; };
+
+  /* ── display sync for the five tuner sliders ──────────────────────────── */
+  function syncLabels(){
+    const p = currentParams();
+    $('val-tune-sr').textContent    = p.sr + ' Hz';
+    $('val-tune-nfft').textContent  = String(p.nfft);
+    $('val-tune-hop').textContent   = String(p.hop);
+    $('val-tune-topdb').textContent = p.top_db + ' dB';
+    $('val-tune-fmax').textContent  = p.fmax + ' Hz';
+  }
+  ['sl-tune-sr','sl-tune-nfft','sl-tune-hop','sl-tune-topdb','sl-tune-fmax']
+    .forEach(id=>{ const el=$(id); if(el) el.addEventListener('input', syncLabels); });
+
+  /* ── file selection ───────────────────────────────────────────────────── */
+  const fileEl = $('tune-file');
+  if(fileEl) fileEl.addEventListener('change', e=>{
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    state.file = f; state.fileName = f.name;
+    status(`Loaded ${f.name} (${(f.size/1024).toFixed(0)} KB) — set params, press TUNE.`);
+  });
+
+  /* ── run one probe ────────────────────────────────────────────────────── */
+  async function run(){
+    if(state.busy) return;
+    if(!state.file){
+      status('Pick a WAV first (the tuner never synthesizes audio).');
+      return;
+    }
+    const p = currentParams();
+    state.busy = true;
+    status('Computing…');
+    const btn = $('bt-tune-run'); if(btn) btn.disabled = true;
+    try{
+      const fd = new FormData();
+      fd.append('file', state.file, state.fileName);
+      fd.append('sr', String(p.sr));
+      fd.append('nfft', String(p.nfft));
+      fd.append('hop', String(p.hop));
+      fd.append('top_db', String(p.top_db));
+      fd.append('win', String(p.win));
+      fd.append('fmax', String(p.fmax));
+      fd.append('device_label', 'tuner_upload');
+      fd.append('engine', 'dsp_arena');
+
+      const resp = await fetch('/compute', {method:'POST', body:fd});
+      const body = await resp.json().catch(()=>({}));
+      if(!resp.ok){
+        status(`Rejected (HTTP ${resp.status}): ${body.detail || resp.statusText}`);
+        return;
+      }
+      /* store raw response values verbatim — no client-side transform */
+      /* σ is emitted ONLY by the dual_mode_rag engine. The canonical
+         dsp_arena engine does not measure it, so it stays null — the marker
+         is then labelled "σ n/a" and drawn on the σ=0 reference plane.
+         sigma is NEVER derived from duration. */
+      const sigNum = [body.laplace_sigma, body.sigma, body.decay_rate]
+                       .map(v=>Number(v)).find(v=>Number.isFinite(v) && v>0);
+      const run_ = {
+        runId: 'T' + String(state.runs.length + 1),
+        file: state.fileName,
+        sigma: (sigNum != null) ? sigNum : null,
+        params: p,
+        params_used_hz: body.fmax_used_hz,
+        actual_sr: body.Recording_Actual_SR_Hz,
+        native_sr: body.native_sr_hz,
+        impact_freq_hz: body.impact_freq_hz,
+        feats: Object.fromEntries(FEATS.map(([k])=>[k, body[k]])),
+        elapsed_ms: body.compute_elapsed_ms,
+        event_id: body.event_id || null,
+      };
+      state.runs.push(run_);
+      if(state.runs.length > HIST_MAX) state.runs.shift();
+      state.last = run_;
+      registerMarker(run_);
+      render();
+      status(`Done · ${paramsString(p)} · fmax_used=${body.fmax_used_hz} Hz · ${body.compute_elapsed_ms} ms`);
+    }catch(err){
+      status('Tuner error: ' + (err && err.message ? err.message : String(err)));
+    }finally{
+      state.busy = false;
+      const b = $('bt-tune-run'); if(b) b.disabled = false;
+    }
+  }
+  window.__dspTunerRun = run;
+
+  /* ── history table: previous value struck through next to current ────── */
+  function render(){
+    const host = $('tune-history');
+    if(!host) return;
+    const cur = state.runs[state.runs.length-1];
+    const prev = state.runs.length>1 ? state.runs[state.runs.length-2] : null;
+    if(!cur){ host.innerHTML = '<div style="font:400 9.5px var(--fm); color:var(--ink-faint);">no runs yet</div>'; return; }
+
+    const delta = (k)=>{
+      if(!prev) return '';
+      const a = prev.feats[k], b = cur.feats[k];
+      if(typeof a!=='number' || typeof b!=='number') return '';
+      const d = b - a;
+      const mark = Math.abs(d) < 1e-9 ? '≡' : (d>0?'▲':'▼');
+      const col = Math.abs(d)<1e-9 ? 'var(--ink-faint)' : (d>0?'#7cf5c9':'#f56ec5');
+      return ` <span style="color:${col}; font-size:8.5px;">${mark}${a.toPrecision(4)}</span>`;
+    };
+
+    const rows = FEATS.map(([k,fmt,label])=>{
+      const v = cur.feats[k];
+      const txt = typeof v === 'number' ? fmt(v) : '—';
+      return `<div style="display:flex; justify-content:space-between; gap:6px;
+        font:400 9.5px var(--fm); color:var(--ink);">
+        <span style="color:var(--ink-dim)">${label} <span style="opacity:.5">${k}</span></span>
+        <span style="white-space:nowrap">${txt}${delta(k)}</span></div>`;
+    }).join('');
+
+    host.innerHTML = `
+      <div style="font:500 9px var(--fm); color:var(--cyan);">${cur.file} · ${cur.runId}</div>
+      <div style="font:400 8.5px var(--fm); color:var(--ink-faint); word-break:break-all;">${paramsString(cur.params)}</div>
+      <div style="font:400 8.5px var(--fm); color:var(--ink-faint);">native_sr=${cur.native_sr} → actual_sr=${cur.actual_sr} · fmax_used=${cur.params_used_hz}</div>
+      <div style="margin-top:3px;">${rows}</div>
+      <div style="font:400 8.5px var(--fm); color:var(--ink-faint); margin-top:3px;">
+        ▲▼ = change vs previous run · values are raw /compute output</div>`;
+  }
+
+  /* ── wire buttons ─────────────────────────────────────────────────────── */
+  const runBtn = $('bt-tune-run'); if(runBtn) runBtn.addEventListener('click', run);
+  const lbl = $('bt-tune-file'); if(lbl){
+    lbl.addEventListener('dragover', e=>{ e.preventDefault(); lbl.style.borderColor='#3ae3ff'; });
+    lbl.addEventListener('dragleave', ()=>{ lbl.style.borderColor=''; });
+    lbl.addEventListener('drop', e=>{
+      e.preventDefault(); lbl.style.borderColor='';
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f){ state.file=f; state.fileName=f.name; status(`Loaded ${f.name} — press TUNE.`); }
+    });
+  }
+
+  /* ── URL priming: ?tsr=..&tnfft=..&thop=..&ttop=..&tfmax=.. ─────────────── */
+  const Q = new URLSearchParams(location.search);
+  const prime = (qp, id, conv)=>{ if(Q.has(qp)){ const el=$(id); if(el){ el.value=conv(+Q.get(qp)); el.dispatchEvent(new Event('input')); } } };
+  prime('tsr','sl-tune-sr', v=>v);
+  prime('tnfft','sl-tune-nfft', v=>expOf(v));
+  prime('thop','sl-tune-hop', v=>expOf(v));
+  prime('ttop','sl-tune-topdb', v=>v);
+  prime('tfmax','sl-tune-fmax', v=>v);
+
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     SLICE 2 · TUNER MARKERS  (additive overlay; no chart math modified)
+     ------------------------------------------------------------------------
+     · Each successful TUNE run gets a stable id (T1, T2, …) recorded in
+       state.runs[].runId and shown on the chart as an amber ring.
+     · Position comes from the measured features using the SAME mapping the
+       live particles use:  X = wxOf(impact_freq_hz), Y = wyOf(peak_time_ms),
+       Z = wzOf(sigma). No new geometry, no normalization, no scaling.
+     · σ: the canonical dsp_arena engine does not measure it (it is not one of
+       the five canonical features and must not be derived from duration).
+       Such markers sit on the σ=0 reference plane of the SAME coordinate
+       system and are labelled "σ n/a". dual_mode_rag runs (which do report
+       laplace_sigma) are placed on their measured σ.
+     · Own canvas + own rAF. computeFrame(), spawnEvent(), the live WS ingest,
+       confirmation flow, and live particles are all left untouched.
+     · Hover the marker → exact run info. Click → pin/unpin the info card.
+     ═════════════════════════════════════════════════════════════════════ */
+  const markerState = { enabled:true, pinned:null, markers:[] };
+  const ovC = $('tuner-overlay'), tipEl = $('tune-tip');
+  const ovCtx = ovC ? ovC.getContext('2d') : null;
+
+  function registerMarker(run_){
+    /* keep a live, id-stable marker list in sync with the run history */
+    markerState.markers = markerState.markers.filter(m=>m.runId!==run_.runId);
+    markerState.markers.push({
+      runId: run_.runId,
+      f:  run_.feats.impact_freq_hz,
+      tp: run_.feats.peak_time_ms,
+      sg: (run_.sigma!=null && isFinite(run_.sigma)) ? run_.sigma : null,
+      file: run_.file,
+      params: run_.params,
+      actual_sr: run_.actual_sr,
+      native_sr: run_.native_sr,
+      fmax_used: run_.params_used_hz,
+      feats: run_.feats,
+      sx:0, sy:0, r:9, visible:false,
+    });
+  }
+
+  function clearMarkers(){
+    markerState.markers.length = 0;
+    markerState.pinned = null;
+    if(tipEl) tipEl.style.display = 'none';
+    status('Cleared all tuner history and markers.');
+    render();
+  }
+
+  /* project every marker with the EXISTING mapping; returns screen pts */
+  function projectMarkers(){
+    if(!ovCtx) return;
+    /* size the overlay to the stage, matching #stage's DPR handling */
+    if(ovC.width !== cvs.width || ovC.height !== cvs.height){
+      ovC.width = cvs.width; ovC.height = cvs.height;
+      ovCtx.setTransform(DPR,0,0,DPR,0,0);
+    }
+    ovCtx.clearRect(0,0,W,H);
+    if(!markerState.enabled) return;
+    const sPJX=PJX, sPJY=PJY, sPJK=PJK, sPJD=PJD;
+    for(const m of markerState.markers){
+      const X = wxOf(m.f), Y = wyOf(m.tp);
+      const Z = (m.sg!=null) ? wzOf(m.sg) : wzOf(0);   /* σ=0 plane when unmeasured */
+      prj(X, Y, Z);
+      m.sx = PJX; m.sy = PJY;
+      m.visible = (PJD > 0.35);
+    }
+    /* restore projection globals the live loop owns */
+    PJX=sPJX; PJY=sPJY; PJK=sPJK; PJD=sPJD;
+
+    /* draw far→near so nearer rings sit on top; ring radius ~ depth-scaled */
+    const sorted = markerState.markers.filter(m=>m.visible)
+      .sort((a,b)=>b.sy-a.sy || a.sx-b.sx);
+    ovCtx.save();
+    ovCtx.lineWidth = 1.4;
+    for(const m of sorted){
+      const pinned = markerState.pinned===m;
+      const R = 8 + PJK*0.0;          /* constant screen ring — matches particle read */
+      ovCtx.beginPath(); ovCtx.arc(m.sx, m.sy, R, 0, Math.PI*2);
+      ovCtx.strokeStyle = m.sg!=null ? 'rgba(255,212,121,0.95)' : 'rgba(255,212,121,0.55)';
+      ovCtx.setLineDash(m.sg!=null ? [] : [3,3]);
+      ovCtx.lineWidth = pinned ? 2.4 : 1.4;
+      ovCtx.stroke();
+      ovCtx.setLineDash([]);
+      if(pinned){
+        ovCtx.beginPath(); ovCtx.arc(m.sx, m.sy, R+4, 0, Math.PI*2);
+        ovCtx.strokeStyle='rgba(255,212,121,0.5)'; ovCtx.lineWidth=1; ovCtx.stroke();
+      }
+      /* id + sigma tag */
+      ovCtx.fillStyle = pinned ? '#fff' : 'rgba(255,226,160,0.95)';
+      ovCtx.font = '600 9px ' + getComputedStyle(document.body).getPropertyValue('--fm');
+      ovCtx.textAlign='left'; ovCtx.textBaseline='bottom';
+      ovCtx.fillText(m.runId + (m.sg!=null?'':' σn/a'), m.sx+R+3, m.sy-R-2);
+    }
+    ovCtx.restore();
+  }
+
+  /* marker hit-test (screen space) */
+  function markerAt(x,y){
+    let hit=null, hbd=1e9;
+    for(const m of markerState.markers){
+      if(!m.visible) continue;
+      const d = Math.hypot(m.sx-x, m.sy-y);
+      if(d < 12 && d < hbd){ hbd=d; hit=m; }
+    }
+    return hit;
+  }
+
+  function runInfoHTML(m){
+    const p = m.params, f = m.feats;
+    const sg = (m.sg!=null) ? m.sg.toFixed(4)+' s⁻¹' : 'n/a (not measured)';
+    return '<b style="color:#ffd479">'+m.runId+'</b>'
+      + ' · '+m.file
+      + '<br><span style="color:#8ba0cc">sr</span> '+p.sr
+      + '  <span style="color:#8ba0cc">nfft</span> '+p.nfft
+      + '  <span style="color:#8ba0cc">hop</span> '+p.hop
+      + '  <span style="color:#8ba0cc">top_db</span> '+p.top_db
+      + '  <span style="color:#8ba0cc">win</span> '+p.win
+      + '  <span style="color:#8ba0cc">fmax</span> '+p.fmax
+      + '<br><span style="color:#8ba0cc">actual_sr</span> '+m.actual_sr
+      + '  <span style="color:#8ba0cc">native_sr</span> '+m.native_sr
+      + '  <span style="color:#8ba0cc">fmax_used</span> '+m.fmax_used+' Hz'
+      + '<br><span style="color:#8ba0cc">impact</span> '+f.impact
+      + '  <span style="color:#8ba0cc">dur</span> '+f.duration_s+'s'
+      + '  <span style="color:#8ba0cc">peak_time</span> '+f.peak_time_ms+'ms'
+      + '<br><span style="color:#8ba0cc">impact_freq_hz</span> '+f.impact_freq_hz
+      + '  <span style="color:#8ba0cc">mel_mean_db</span> '+f.mel_mean_db
+      + '<br><span style="color:#8ba0cc">σ</span> '+sg;
+  }
+
+  function showTip(m, x, y){
+    if(!tipEl || !m) return;
+    tipEl.innerHTML = runInfoHTML(m);
+    tipEl.style.display = 'block';
+    tipEl.style.left = Math.min(x+14, innerWidth-330) + 'px';
+    tipEl.style.top  = Math.min(y+14, innerHeight-160) + 'px';
+  }
+  function hideTip(){ if(tipEl) tipEl.style.display = 'none'; }
+
+  /* ── marker own-render loop (never touches computeFrame) ─────────────── */
+  (function markerLoop(){
+    projectMarkers();
+    requestAnimationFrame(markerLoop);
+  })();
+
+  /* ── hover / click on the STAGE: additive listeners only ────────────── */
+  /* hover — driven by the loop's existing mx/my (already global) */
+  let hoveredMarker = null;
+  (function markerHover(){
+    if(markerState.enabled){
+      const h = markerAt(mx, my);
+      if(h !== hoveredMarker){
+        hoveredMarker = h;
+        if(!markerState.pinned) showTip(h, mx, my);
+      } else if(h && !markerState.pinned){
+        showTip(h, mx, my);
+      }
+      if(!h && !markerState.pinned) hideTip();
+    } else if(!markerState.pinned) hideTip();
+    requestAnimationFrame(markerHover);
+  })();
+
+  /* click — pin a marker's info card; does NOT block the live click-to-lock */
+  cvs.addEventListener('click', e=>{
+    const h = markerAt(e.clientX, e.clientY);
+    if(h){
+      markerState.pinned = (markerState.pinned===h) ? null : h;
+      if(markerState.pinned) showTip(markerState.pinned, e.clientX, e.clientY);
+      else hideTip();
+    } else if(markerState.pinned){
+      markerState.pinned = null; hideTip();
+    }
+  });
+
+  /* show/hide toggle */
+  const chk = $('tune-show-markers');
+  if(chk) chk.addEventListener('change', ()=>{
+    markerState.enabled = chk.checked;
+    if(!markerState.enabled) hideTip();
+  });
+
+  /* clear / remove-history */
+  const clearBtn = $('bt-tune-clear');
+  if(clearBtn) clearBtn.addEventListener('click', ()=>{
+    state.runs.length = 0; state.last = null;
+    clearMarkers();
+  });
+
+  syncLabels();
+  render();
+  console.log('[tuner] mounted · additive probe + A/B history · no chart math touched');
 })();
 </script>
 </body>

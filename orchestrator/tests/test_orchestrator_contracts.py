@@ -99,3 +99,69 @@ def test_dispatcher_does_not_allow_unlisted_executable(tmp_path):
     current = task("blocked", execution={"allowed_executables": ("/bin/false",)})
     with pytest.raises(PermissionError):
         Dispatcher(tmp_path).run(current, [sys.executable, "-c", "pass"])
+
+
+def test_dispatcher_uses_ordered_registered_runtime(tmp_path):
+    executable = Path(sys.executable).resolve()
+    runtime = LocalSubprocessAdapter(str(executable))
+    dispatcher = Dispatcher(tmp_path, runtime_adapters={"reviewer": runtime})
+    current = task(
+        "runtime",
+        allowed_runtimes=("reviewer",),
+        execution={"allowed_executables": (str(executable),), "timeout_seconds": 2},
+    )
+    result = dispatcher.run(current, [str(executable), "-c", "print('reviewed')"])
+    assert result.status == TaskStatus.SUCCEEDED
+    assert result.runtime["runtime"] == "reviewer"
+    assert result.runtime["adapter"] == "local_subprocess"
+
+
+def test_dispatcher_blocks_unregistered_runtime(tmp_path):
+    result = Dispatcher(tmp_path).run(task("missing-runtime", allowed_runtimes=("claude_code",)))
+    assert result.status == TaskStatus.BLOCKED
+    assert result.failure.category.value == "dependency"
+    assert "claude_code" in result.failure.message
+
+
+def test_run_graph_parallelizes_independent_read_only_tasks(tmp_path, monkeypatch):
+    import threading
+
+    barrier = threading.Barrier(2)
+    dispatcher = Dispatcher(tmp_path)
+
+    def fake_run(item, command=None):
+        if item.task_id in {"review-a", "review-b"}:
+            barrier.wait(timeout=2)
+        return ResultEnvelope("result/v1", item.task_id, item.run_id, TaskStatus.SUCCEEDED)
+
+    monkeypatch.setattr(dispatcher, "run", fake_run)
+    tasks = [
+        task("review-a"),
+        task("review-b"),
+        task("integration", ("review-a", "review-b")),
+    ]
+    results = dispatcher.run_graph(
+        tasks,
+        {"review-a": ("fake",), "review-b": ("fake",), "integration": ("fake",)},
+        max_parallelism=2,
+    )
+    assert set(results) == {"review-a", "review-b", "integration"}
+    assert all(result.status == TaskStatus.SUCCEEDED for result in results.values())
+
+
+def test_run_graph_blocks_dependents_after_failed_dependency(tmp_path, monkeypatch):
+    dispatcher = Dispatcher(tmp_path)
+
+    def fake_run(item, command=None):
+        status = TaskStatus.FAILED if item.task_id == "failed" else TaskStatus.SUCCEEDED
+        return ResultEnvelope("result/v1", item.task_id, item.run_id, status)
+
+    monkeypatch.setattr(dispatcher, "run", fake_run)
+    results = dispatcher.run_graph(
+        [task("failed"), task("independent"), task("dependent", ("failed",))],
+        {"failed": ("fake",), "independent": ("fake",), "dependent": ("fake",)},
+        max_parallelism=2,
+    )
+    assert results["failed"].status == TaskStatus.FAILED
+    assert results["independent"].status == TaskStatus.SUCCEEDED
+    assert results["dependent"].status == TaskStatus.BLOCKED

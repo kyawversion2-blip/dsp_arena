@@ -11,8 +11,10 @@ machine is only an execution host; no permanent Mac dependency is encoded.
   mutation is implemented here.
 - **Kaggle worker:** disposable burst experiment worker. No Kaggle connection is
   implemented here.
-- **Agent runtimes:** Codex, Qoder, Hermes, and OpenCode are adapter identities,
-  not orchestration dependencies. Only the local subprocess adapter exists.
+- **Agent runtimes:** TaskEnvelope.allowed_runtimes is an ordered preference list.
+  RuntimeRegistry resolves it to an injected adapter; local_subprocess remains the
+  default, and unregistered runtimes return BLOCKED rather than pretending to run.
+  Provider/CLI adapters can be added explicitly without changing the task schema.
 
 Roles are represented by `TaskEnvelope.role`: `architecture`, `coding`,
 `dsp_scientific`, `data_ml`, `vision_chart`, `independent_audit`, and
@@ -31,7 +33,17 @@ Roles are represented by `TaskEnvelope.role`: `architecture`, `coding`,
 8. Retry only bounded transient/provider/timeout failures.
 
 Dry-run mode validates the task and records an observed skip without launching
-a subprocess.
+a subprocess. Dispatcher.run_graph() runs dependency-ready read-only tasks in
+parallel up to max_parallelism; tasks in a wave containing a non-read-only task
+are serialized. Failed dependencies block downstream tasks explicitly. The CLI
+entry point is python -m orchestrator.runner --plan plan.json. Use repeated
+--runtime-alias options to explicitly enable local CLI runtime identities, for
+example --runtime-alias claude_code --runtime-alias opencode. Each task must
+still declare its exact allowed executable and any allowed paths; the caller
+supplies the CLI argv in the plan. These aliases do not install providers or
+configure credentials. A provider CLI task must explicitly request network
+access in its execution policy, and that policy is descriptive rather than an
+OS-level network sandbox.
 
 ## Security boundaries
 

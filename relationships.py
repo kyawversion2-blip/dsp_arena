@@ -71,6 +71,11 @@ def infer_relationships(
         )
     rels: List[Dict] = []
     for pair in PAIRS:
+        # A pair has no measurable relationship if either group had no usable
+        # centroid/features in the input dataset. Omit it instead of raising
+        # KeyError or fabricating a distance.
+        if pair not in distance_matrix:
+            continue
         d = distance_matrix[pair]
         if d < tau_similar:
             rels.append(

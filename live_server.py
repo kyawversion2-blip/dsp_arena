@@ -18,6 +18,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import csv
 import os
 import sys
 import importlib.util
@@ -52,10 +53,14 @@ import mic_loop as _mic
 import event_store as _store
 import confirmed_store as _labelled
 import similarity as _similar
+import ai_model_gateway as _dsp_ai
 
 # Local DSP library - reuse exact same recipe as offline optimizer.
 # ONE recipe = ONE truth (PROJECT_MEMORY s1 golden rule).
 from dsp_inverse import (
+    CHROMA_NOTE_NAMES,
+    compute_chroma_12,
+    compute_chroma_circular_relative,
     detect_transient_window,
     measure_features,
     resample_linear,
@@ -395,9 +400,12 @@ async def _start_mic_service() -> bool:
         log.info("Mic loop start skipped (NO_MIC=1 set).")
         return False
         
-    mic_dev = int(os.environ["MIC_DEVICE"]) if "MIC_DEVICE" in os.environ else None
+    mic_dev_env = os.environ.get("MIC_DEVICE")
+    mic_dev: int | str | None = None
+    if mic_dev_env is not None and mic_dev_env.strip() != "":
+        mic_dev = int(mic_dev_env) if mic_dev_env.strip().isdigit() else mic_dev_env.strip()
     mic_sr = int(os.environ.get("MIC_SR", "44100"))
-    log.info("Starting live mic loop: device=%s  requested_sr=%d", mic_dev or "default", mic_sr)
+    log.info("Starting live mic loop: device=%s  requested_sr=%d", mic_dev or "auto", mic_sr)
     _mic_task = asyncio.create_task(
         _mic.run_mic_loop(manager=manager, device=mic_dev, requested_sr=mic_sr, channels=1),
         name="mic_loop",
@@ -409,6 +417,11 @@ async def _start_mic_service() -> bool:
 async def _stop_mic_service() -> bool:
     global _mic_task, _mic_active
     _mic_active = False
+    if hasattr(_mic, "stop_mic_loop"):
+        try:
+            await _mic.stop_mic_loop()
+        except Exception:
+            pass
     if _mic_task and not _mic_task.done():
         _mic_task.cancel()
         try:
@@ -487,6 +500,16 @@ async def scout() -> FileResponse:
     if not _SCOUT_HTML_PATH.exists():
         raise HTTPException(404, "partition_scout.html not found")
     return FileResponse(_SCOUT_HTML_PATH, media_type="text/html")
+
+
+_ARENA_HTML_PATH = Path(__file__).parent / "index.html"
+
+@app.get("/arena", response_class=FileResponse, include_in_schema=True)
+async def dsp_arena_page() -> FileResponse:
+    """Serve DSP Arena with same-origin access to its AI API."""
+    if not _ARENA_HTML_PATH.exists():
+        raise HTTPException(404, "DSP Arena index.html not found")
+    return FileResponse(_ARENA_HTML_PATH, media_type="text/html")
 
 
 @app.get("/health")
@@ -821,6 +844,42 @@ async def compute(
         payload["fmax_requested_hz"] = None if fmax_requested is None else round(float(fmax_requested), 1)
         payload["waveform"] = _downsample_waveform(y, 300)
 
+    # Phase 3: Auxiliary Chroma Diagnostic (Isolated extension)
+    try:
+        ch_raw = compute_chroma_12(y, sr=actual_sr, detect_transient=True)
+        ch_circ = compute_chroma_circular_relative(ch_raw.get("chroma_12", []))
+        payload["auxiliary_chroma"] = {
+            "status": ch_raw.get("status", "ok"),
+            "dominant_note": ch_raw.get("dominant_note"),
+            "dominant_index": ch_raw.get("dominant_index"),
+            "purity": ch_raw.get("purity", 0.0),
+            "chroma_12": ch_raw.get("chroma_12", [0.0] * 12),
+            "chroma_circular_12": ch_circ,
+            "dominant_note_attack": ch_raw.get("dominant_note_attack"),
+            "purity_attack": ch_raw.get("purity_attack", 0.0),
+            "chroma_attack_12": ch_raw.get("chroma_attack_12", [0.0] * 12),
+            "dominant_note_ringdown": ch_raw.get("dominant_note_ringdown"),
+            "purity_ringdown": ch_raw.get("purity_ringdown", 0.0),
+            "chroma_ringdown_12": ch_raw.get("chroma_ringdown_12", [0.0] * 12),
+            "note_names": CHROMA_NOTE_NAMES,
+            "relative_bin_names": [
+                "0 (Peak)", "+1st", "+2st", "+3st", "+4st", "+5st",
+                "+6st", "+7st", "+8st", "+9st", "+10st", "+11st"
+            ],
+            "analysis_window_ms": ch_raw.get("analysis_window_ms", 0.0),
+            "cross_session_disclaimer": "Diagnostic auxiliary feature only; cross-session generalization has not been established.",
+        }
+    except Exception as exc:
+        log.warning("Auxiliary chroma extraction error for %s: %s", filename, exc)
+        payload["auxiliary_chroma"] = {
+            "status": "error",
+            "error": str(exc),
+            "chroma_12": [0.0] * 12,
+            "chroma_circular_12": [0.0] * 12,
+            "note_names": CHROMA_NOTE_NAMES,
+            "cross_session_disclaimer": "Diagnostic auxiliary feature only; cross-session generalization has not been established.",
+        }
+
     log.info("compute  OK  freq=%.1f Hz  peak_ms=%.3f  impact=%.4f  elapsed=%.1f ms",
              payload["impact_freq_hz"], payload["peak_time_ms"],
              payload["impact"], elapsed_ms)
@@ -830,6 +889,89 @@ async def compute(
         payload, manager, source="compute_endpoint"
     )
     return JSONResponse(content={**payload, "event_id": event_id})
+
+
+_CHROMA_OUT_DIR = Path(__file__).resolve().parent / "dsp_out" / "chroma_relative_validation"
+_CHROMA_SUMMARY_CACHE: dict[str, Any] = {}
+
+
+def _get_chroma_session_summary_data() -> dict[str, Any]:
+    global _CHROMA_SUMMARY_CACHE
+    if _CHROMA_SUMMARY_CACHE:
+        return _CHROMA_SUMMARY_CACHE
+
+    res: dict[str, Any] = {
+        "status": "ok",
+        "disclaimer": "Auxiliary diagnostic only; cross-session generalization has not been established (within-session balanced accuracy: 72–90%, cross-session: ~50–56%).",
+        "note_names": CHROMA_NOTE_NAMES,
+        "relative_bin_names": [
+            "0 (Peak)", "+1st", "+2st", "+3st", "+4st", "+5st",
+            "+6st", "+7st", "+8st", "+9st", "+10st", "+11st"
+        ],
+        "sessions": {},
+    }
+
+    session_files = {
+        "2612": _CHROMA_OUT_DIR / "session_2612_relative.csv",
+        "audio": _CHROMA_OUT_DIR / "session_audio_relative.csv",
+    }
+
+    abs_cols = [f"chroma_{name.replace('#', 'Sharp')}" for name in CHROMA_NOTE_NAMES]
+    circ_cols = [f"chroma_circ_bin_{i}" for i in range(12)]
+
+    for s_id, csv_p in session_files.items():
+        if not csv_p.exists():
+            continue
+        try:
+            with open(csv_p, mode="r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+
+            rows_a = [r for r in rows if r.get("group") == "A"]
+            rows_c = [r for r in rows if r.get("group") == "C"]
+
+            def _col_mean(row_list: list[dict], col: str) -> float:
+                vals = [float(r[col]) for r in row_list if col in r and r[col]]
+                return float(np.mean(vals)) if vals else 0.0
+
+            res["sessions"][s_id] = {
+                "session_id": s_id,
+                "label": f"Session {s_id} ({len(rows)} files, {len(rows_a) + len(rows_c)} A/C)",
+                "n_total": len(rows),
+                "n_group_a": len(rows_a),
+                "n_group_c": len(rows_c),
+                "mean_absolute_a": [round(_col_mean(rows_a, c), 4) for c in abs_cols],
+                "mean_absolute_c": [round(_col_mean(rows_c, c), 4) for c in abs_cols],
+                "mean_circular_a": [round(_col_mean(rows_a, c), 4) for c in circ_cols],
+                "mean_circular_c": [round(_col_mean(rows_c, c), 4) for c in circ_cols],
+                "mean_purity_a": round(_col_mean(rows_a, "chroma_purity"), 4),
+                "mean_purity_c": round(_col_mean(rows_c, "chroma_purity"), 4),
+                "mean_freq_hz_a": round(_col_mean(rows_a, "impact_freq_hz"), 1),
+                "mean_freq_hz_c": round(_col_mean(rows_c, "impact_freq_hz"), 1),
+            }
+        except Exception as exc:
+            log.warning("Could not parse chroma session summary for %s: %s", s_id, exc)
+
+    _CHROMA_SUMMARY_CACHE = res
+    return res
+
+
+@app.get("/chroma/session_summary")
+async def get_chroma_session_summary(session: str = "all") -> JSONResponse:
+    """Return pre-extracted Group A vs Group C benchmark profiles for Session 2612 & Session Audio.
+
+    Query param `session`: "all", "2612", or "audio".
+    """
+    data = _get_chroma_session_summary_data()
+    if session != "all" and session in data.get("sessions", {}):
+        return JSONResponse(content={
+            "status": "ok",
+            "disclaimer": data["disclaimer"],
+            "note_names": data["note_names"],
+            "relative_bin_names": data["relative_bin_names"],
+            "session": data["sessions"][session],
+        })
+    return JSONResponse(content=data)
 
 
 
@@ -873,14 +1015,21 @@ async def get_engines() -> JSONResponse:
 # ---------------------------------------------------------------------------
 @app.get("/api/mic/status")
 async def get_mic_status() -> JSONResponse:
+    diag = _mic.get_mic_diagnostics() if hasattr(_mic, "get_mic_diagnostics") else {}
     is_running = _mic_task is not None and not _mic_task.done() and _mic_active
-    dev_name = getattr(_mic._st, "device_name", "unknown") if hasattr(_mic, "_st") else "unknown"
-    actual_sr = getattr(_mic._st, "actual_sr", 44100) if hasattr(_mic, "_st") else 44100
-    return JSONResponse(content={
+    payload = {
         "active": is_running,
-        "device": dev_name,
-        "actual_sr": actual_sr,
-    })
+        "device": diag.get("device_name", getattr(_mic._st, "device_name", "unknown") if hasattr(_mic, "_st") else "unknown"),
+        "requested_sr": diag.get("requested_sr", getattr(_mic._st, "requested_sr", 44100) if hasattr(_mic, "_st") else 44100),
+        "actual_sr": diag.get("actual_sr", getattr(_mic._st, "actual_sr", 44100) if hasattr(_mic, "_st") else 44100),
+        "stream_state": diag.get("stream_state", "uninitialized"),
+        "reconnect_attempts": diag.get("reconnect_attempts", 0),
+        "error_message": diag.get("error_message"),
+        "diagnostics": diag,
+    }
+    if diag.get("fallback_sr") is not None:
+        payload["fallback_sr"] = diag["fallback_sr"]
+    return JSONResponse(content=payload)
 
 @app.post("/api/mic/start")
 async def start_mic_endpoint() -> JSONResponse:
@@ -1516,6 +1665,33 @@ async def google_oauth_disconnect() -> dict:
     })
     log.info("Google OAuth session disconnected.")
     return {"status": "ok", "authenticated": False}
+
+
+class DSPAIRequest(BaseModel):
+    provider: str
+    model: Optional[str] = None
+    task: str = "feature_analysis"
+    dataset_name: str = "uploaded dataset"
+    rows: list[dict[str, Any]]
+
+
+@app.get("/api/dsp-ai/status")
+async def dsp_ai_status() -> dict:
+    """Return provider/model options and key-presence booleans only."""
+    return _dsp_ai.provider_status()
+
+
+@app.post("/api/dsp-ai/run")
+async def dsp_ai_run(req: DSPAIRequest) -> JSONResponse:
+    """Run an explicit user-requested DSP feature analysis or AI-assisted classification."""
+    try:
+        result = await _dsp_ai.run_dsp_ai(req.provider, req.model, req.task, req.rows, req.dataset_name)
+        return JSONResponse(content=result)
+    except _dsp_ai.AIProviderError as exc:
+        return JSONResponse(status_code=exc.status_code, content={"status": "error", "detail": str(exc)})
+    except Exception:
+        log.exception("Unexpected DSP AI gateway error")
+        return JSONResponse(status_code=500, content={"status": "error", "detail": "Unexpected server error while running AI. Check server logs; API keys are not returned."})
 
 
 @app.post("/api/ai/mood")

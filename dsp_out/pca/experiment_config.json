@@ -1,0 +1,39 @@
+{
+  "experiment_id": "49d33e39fe92e851",
+  "representation": "pca_on_zscore_5d",
+  "data_source": "dsp_out/run3/features.csv",
+  "data_hash": "49dfab6c29f014aed3f83bb90ffe2aba4a51beb5908ec197d750683d0ef703bc",
+  "norm_params_hash": "6a43a417fbc97231",
+  "pca_params_hash": "aafb6a4c3ec702ec",
+  "n_events": 321,
+  "n_groups": 4,
+  "group_counts": {
+    "A": 67,
+    "B": 79,
+    "C": 96,
+    "D": 79
+  },
+  "feature_order": [
+    "impact",
+    "duration",
+    "peak_time",
+    "mel_mean_db",
+    "impact_freq_hz"
+  ],
+  "round_trip_max_error": 7.105427357601002e-15,
+  "round_trip_passed": true,
+  "feature_correlations": {
+    "impact_vs_duration": 0.19921019493518952,
+    "impact_vs_peak_time": 0.07106815973709082,
+    "impact_vs_mel_mean_db": 0.622459285961156,
+    "impact_vs_impact_freq_hz": 0.04737562220147925,
+    "duration_vs_peak_time": -0.06658960592962697,
+    "duration_vs_mel_mean_db": 0.050379217025573554,
+    "duration_vs_impact_freq_hz": -0.1812640447591335,
+    "peak_time_vs_mel_mean_db": 0.22573841926800708,
+    "peak_time_vs_impact_freq_hz": 0.10382511844642807,
+    "mel_mean_db_vs_impact_freq_hz": 0.2206506946807942
+  },
+  "created_at": "2026-10-05T14:40:39.745232+00:00",
+  "config_hash": "bdb65199bca9ad16"
+}

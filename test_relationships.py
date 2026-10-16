@@ -115,6 +115,13 @@ def test_infer_relationships_tau_misconfig_raises():
         infer_relationships(dm, 1.0, 0.5, 0.5, 0.5)
 
 
+def test_infer_relationships_skips_pairs_without_two_group_centroids():
+    dm = {"AC": 0.2, "AD": 1.2, "CD": 0.4}
+    rels = infer_relationships(dm, 0.5, 1.0, 0.5, 0.5)
+    assert {r["pair"] for r in rels} == {"AC", "AD", "CD"}
+    assert all(r["pair"] in dm for r in rels)
+
+
 # ----- collapse_gate -----
 
 def test_collapse_gate_prevents_full_merge():

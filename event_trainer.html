@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Event Trainer — Threshold Discovery from Labeled Events</title>
+<style>
+  :root {
+    --bg-primary: #0b0f19;
+    --bg-card: #151d2e;
+    --bg-card-hover: #1c263d;
+    --border: #24324d;
+    --accent: #38bdf8;
+    --success: #34d399;
+    --danger: #f87171;
+    --warning: #fbbf24;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { background: var(--bg-primary); color: var(--text-main); line-height: 1.5; padding: 24px; min-height: 100vh; }
+
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 16px; }
+  .title-group h1 { font-size: 1.4rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px; }
+  .title-group p { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
+  .badge { padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid var(--border); background: #1e293b; color: var(--accent); }
+  .badge-live { background: rgba(52, 211, 153, 0.15); border-color: var(--success); color: var(--success); }
+
+  .grid-layout { display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 1080px) { .grid-layout { grid-template-columns: 1fr; } }
+
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .card-header { font-size: 0.95rem; font-weight: 600; color: #cbd5e1; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .form-group select, .form-group input, .form-group textarea {
+    width: 100%; background: #0b0f19; border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: #fff; font-size: 0.85rem; outline: none; transition: border-color 0.2s;
+  }
+  .form-group select:focus, .form-group input:focus, .form-group textarea:focus { border-color: var(--accent); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .form-row.tri { grid-template-columns: 1fr 1fr 1fr; }
+
+  .btn { width: 100%; padding: 10px 16px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; justify-content: center; align-items: center; gap: 8px; border: none; }
+  .btn-primary { background: #2563eb; color: #fff; box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4); }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-demo { background: #0f766e; color: #fff; margin-bottom: 10px; }
+  .btn-demo:hover { background: #115e59; }
+  .btn-secondary { background: #1e293b; color: #cbd5e1; border: 1px solid var(--border); }
+  .btn-secondary:hover { background: #334155; color: #fff; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .stat-tile { background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .stat-title { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
+  .stat-val { font-size: 1.3rem; font-weight: 700; color: #fff; margin-top: 4px; }
+  .stat-sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+  .table-wrap { overflow-x: auto; margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.82rem; }
+  th { background: #0f172a; padding: 10px 12px; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  td { padding: 8px 12px; border-bottom: 1px solid #1c263d; color: #e2e8f0; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg-card-hover); }
+
+  .formula-box { background: #0b0f19; border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 6px; padding: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; color: #38bdf8; margin-top: 14px; overflow-x: auto; word-break: break-all; }
+  .formula-gated { border-left-color: var(--warning); color: var(--warning); background: rgba(251, 191, 36, 0.06); }
+
+  .canvas-container { background: #0b0f19; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 14px; position: relative; }
+  canvas { width: 100%; display: block; }
+
+  .caveat { background: rgba(251, 191, 36, 0.07); border: 1px solid rgba(251, 191, 36, 0.35); border-left: 4px solid var(--warning); border-radius: 6px; padding: 12px 14px; font-size: 0.8rem; color: #e2e8f0; margin-top: 14px; line-height: 1.5; }
+  .caveat strong { color: var(--warning); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 10px; font-size: 0.8rem; color: var(--text-muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .mini { font-size: 0.72rem; color: var(--text-muted); }
+  .muted { color: var(--text-muted); }
+  .ok { color: var(--success); }
+  .bad { color: var(--danger); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .del { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 0.75rem; }
+  .hint { font-size: 0.72rem; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="title-group">
+    <h1>🎯 Event Trainer <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-muted);">v1.0 (Offline, pure client)</span></h1>
+    <p>Labeled-event threshold discovery · ivory-on-bamboo acoustics · canonical features only</p>
+  </div>
+  <span class="badge badge-live" id="dataBadge">No dataset</span>
+</div>
+
+<div class="grid-layout">
+
+  <!-- ============ Controls Panel ============ -->
+  <div class="card">
+    <div class="card-header"><span>⚙️ Data &amp; Rule Setup</span></div>
+
+    <button class="btn btn-demo" id="bt-demo-load">🎲 Load Demo Data (4 groups × 4)</button>
+
+    <div class="form-group">
+      <label>Upload features CSV</label>
+      <input type="file" id="ftr-file" accept=".csv,text/csv" />
+      <div class="hint">columns: id, group (A/B/C/D), impact, duration_s, peak_time_ms, impact_freq_hz, mel_mean_db</div>
+    </div>
+
+    <div class="form-group">
+      <label>Paste CSV rows</label>
+      <textarea id="ftr-paste" rows="4" placeholder="id,group,impact,duration_s,peak_time_ms,impact_freq_hz,mel_mean_db"></textarea>
+      <button class="btn btn-secondary" style="margin-top:8px;" id="bt-import">Import pasted rows</button>
+    </div>
+
+    <div class="form-group">
+      <label>Add one event manually</label>
+      <div class="form-row">
+        <input id="new-id" placeholder="id (e.g. A05)" />
+        <select id="new-group"><option>A</option><option>B</option><option>C</option><option>D</option></select>
+      </div>
+      <div class="form-row" style="margin-top:8px;">
+        <input id="new-impact" type="number" step="0.0001" placeholder="impact RMS" />
+        <input id="new-duration" type="number" step="0.0001" placeholder="duration_s" />
+      </div>
+      <div class="form-row" style="margin-top:8px;">
+        <input id="new-peak" type="number" step="0.01" placeholder="peak_time_ms" />
+        <input id="new-freq" type="number" step="1" placeholder="impact_freq_hz" />
+      </div>
+      <div class="form-row" style="margin-top:8px;">
+        <input id="new-mel" type="number" step="0.01" placeholder="mel_mean_db" />
+        <button class="btn btn-secondary" id="bt-add" style="align-self:end;">+ Add</button>
+      </div>
+    </div>
+
+    <hr style="border-color: var(--border); margin: 16px 0;" />
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Group g0 (target class)</label>
+        <select id="sel-g0"><option>A</option><option>B</option><option>C</option><option>D</option></select>
+      </div>
+      <div class="form-group">
+        <label>Group g1 (other class)</label>
+        <select id="sel-g1"><option>D</option><option>A</option><option>B</option><option>C</option></select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>X axis</label>
+        <select id="sel-axis-x"></select>
+      </div>
+      <div class="form-group">
+        <label>Y axis</label>
+        <select id="sel-axis-y"></select>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="bt-search">🔍 Search threshold rule</button>
+
+    <div id="rule-controls" style="display:none; margin-top:16px;">
+      <div class="form-group">
+        <label>Threshold slider <span class="mono" id="th-value"></span></label>
+        <input type="range" id="sl-threshold" min="0" max="1" step="0.0001" style="width:100%;" />
+        <div class="hint">Sliding recomputes the real evaluation (accuracy, misclassified list, chart annotation).</div>
+      </div>
+      <div class="form-group">
+        <label>Direction</label>
+        <select id="sel-direction">
+          <option value="lt">g0 when feature below threshold</option>
+          <option value="gt">g0 when feature above threshold</option>
+        </select>
+      </div>
+      <button class="btn btn-secondary" id="bt-two-feature">Evaluate second feature (AND)</button>
+      <button class="btn btn-secondary" id="bt-clear-rule" style="margin-top:8px;">Clear rule</button>
+    </div>
+  </div>
+
+  <!-- ============ Results Dashboard ============ -->
+  <div>
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <span>📈 Scatter of labeled events</span>
+        <span class="mini" id="axisCaption">choose two features</span>
+      </div>
+      <div class="canvas-container">
+        <canvas id="trainer-canvas" width="760" height="460"></canvas>
+      </div>
+      <div class="legend" id="chart-legend"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <span>📐 Learned rule</span>
+        <span class="mini" id="rule-meta">no rule yet</span>
+      </div>
+      <div id="rule-formula" class="formula-box">Run a threshold search to learn a rule.</div>
+      <div class="stats-grid" style="margin-top:16px;margin-bottom:0;">
+        <div class="stat-tile">
+          <div class="stat-title">Training balanced acc.</div>
+          <div class="stat-val" id="kpi-train">—</div>
+          <div class="stat-sub" id="kpi-train-sub"></div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-title">LOO validation</div>
+          <div class="stat-val" id="kpi-loo">—</div>
+          <div class="stat-sub" id="kpi-loo-sub"></div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-title">Misclassified (train)</div>
+          <div class="stat-val" id="kpi-mis">—</div>
+          <div class="stat-sub">on current rule</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-title">Samples g0 / g1</div>
+          <div class="stat-val" id="kpi-n">—</div>
+          <div class="stat-sub">selected groups only</div>
+        </div>
+      </div>
+      <div class="caveat" id="caveat-box">
+        <strong>⚠ Small-sample limits:</strong> with only 4–15 labeled events, training accuracy is <strong>not</strong>
+        evidence of generalization. This tool reports leave-one-out cross-validation with the threshold
+        re-fit on each training fold (avoids circular scoring), but LOO on a tiny sample is itself noisy.
+        Treat the rule as exploratory guidance, and validate on fresh data before trusting it.
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><span>❌ Misclassified events</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Event</th><th>Group</th><th>True</th><th>Predicted</th><th>Feature value</th></tr></thead>
+          <tbody id="misclass-tbody">
+            <tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:18px;">Run a search to see misclassified events.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><span>📋 Rules per feature (interpretable threshold rules)</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Feature</th><th>Rule</th><th>Train acc.</th><th>LOO</th><th>Mis (train)</th></tr></thead>
+          <tbody id="rules-tbody">
+            <tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:18px;">No events loaded yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span>🔬 Event features &amp; result</span>
+        <span class="mini" id="evt-count">0 events</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>id</th><th>group</th><th>impact</th><th>duration_s</th><th>peak_time_ms</th><th>impact_freq_hz</th><th>mel_mean_db</th><th>result</th><th></th></tr></thead>
+          <tbody id="events-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ── EVENT-TRAINER · SLICE 1 · CORE ENGINE (canonical schema) ────────────── */
+const FEATURES = ['impact', 'duration_s', 'peak_time_ms', 'impact_freq_hz', 'mel_mean_db'];
+const UNITS = { impact: 'RMS', duration_s: 's', peak_time_ms: 'ms', impact_freq_hz: 'Hz', mel_mean_db: 'dB' };
+const DISPLAY = { impact: 'peak RMS', duration_s: 'decay dur', peak_time_ms: 'rise 10-90%', impact_freq_hz: 'peak freq', mel_mean_db: 'mel mean' };
+const GROUPS = ['A', 'B', 'C', 'D'];
+const GROUP_COLORS = { A: '#e74c3c', B: '#3498db', C: '#2ecc71', D: '#9b59b6' };
+
+function parseEvents(rows) {
+  const out = [];
+  rows.forEach((r, i) => {
+    /* Accept both flat feature columns (CSV) and already-built Event objects. */
+    const src = (r.features && typeof r.features === 'object') ? r : null;
+    const id = String(src ? src.id : (r.id !== undefined ? r.id : 'evt_' + String(i + 1).padStart(3, '0')));
+    const grp = String(src ? src.group : r.group).trim().toUpperCase();
+    if (!GROUPS.includes(grp)) throw new Error('unknown group ' + grp + ' in row ' + id);
+    const feats = {};
+    FEATURES.forEach(f => {
+      const v = src ? src.features[f] : r[f];
+      const n = Number(v);
+      feats[f] = isFinite(n) ? n : 0.0;
+    });
+    out.push({ id, group: grp, features: feats });
+  });
+  return out;
+}
+
+function balancedAccuracy(c0, t0, c1, t1) {
+  const r0 = t0 > 0 ? c0 / t0 : 0;
+  const r1 = t1 > 0 ? c1 / t1 : 0;
+  return (r0 + r1) / 2;
+}
+
+/* Cheap training-set-only evaluation → counts + misclassified ids.
+   Mirrors event_rule._evaluate_pure. */
+function evaluatePure(events, g0, g1, feature, threshold, direction) {
+  let c0 = 0, c1 = 0, t0 = 0, t1 = 0;
+  const misclassified = [];
+  const groupCounts = {};
+  events.forEach(e => {
+    groupCounts[e.group] = (groupCounts[e.group] || 0) + 1;
+    const isG0 = rulePredictsG0(e, feature, threshold, direction);
+    if (e.group === g0) { t0++; if (isG0) c0++; else misclassified.push(e.id); }
+    else if (e.group === g1) { t1++; if (!isG0) c1++; else misclassified.push(e.id); }
+  });
+  return { c0, t0, c1, t1, misclassified, groupCounts };
+}
+
+/* A rule predicts g0 when (direction lt → feature < threshold, gt → feature > threshold). */
+function rulePredictsG0(e, feature, threshold, direction) {
+  const v = e.features[feature];
+  return direction === 'lt' ? (v < threshold) : (v > threshold);
+}
+
+/* Search best threshold+direction on pure training accuracy (gap midpoints). */
+function searchBestThreshold(events, g0, g1, feature) {
+  const v0 = events.filter(e => e.group === g0).map(e => e.features[feature]).sort((a, b) => a - b);
+  const v1 = events.filter(e => e.group === g1).map(e => e.features[feature]).sort((a, b) => a - b);
+  if (!v0.length || !v1.length) {
+    const vals = events.map(e => e.features[feature]);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return { feature, direction: 'lt', threshold: mean, score: 0 };
+  }
+  const merged = Array.from(new Set(v0.concat(v1))).sort((a, b) => a - b);
+  const candidates = [];
+  for (let i = 0; i < merged.length - 1; i++) {
+    const a = merged[i], b = merged[i + 1];
+    if (a !== b) candidates.push((a + b) / 2);
+  }
+  [v0, v1].forEach(gv => {
+    const med = gv[Math.floor(gv.length / 2)];
+    const rng = (gv[gv.length - 1] - gv[0]) + 1e-12;
+    [0.05, 0.10, 0.15].forEach(frac => {
+      candidates.push(med - frac * rng);
+      candidates.push(med + frac * rng);
+    });
+  });
+  let bestScore = -1, bestRule = null;
+  candidates.forEach(t => {
+    ['lt', 'gt'].forEach(d => {
+      const ev = evaluatePure(events, g0, g1, feature, t, d);
+      const ba = balancedAccuracy(ev.c0, ev.t0, ev.c1, ev.t1);
+      if (ba > bestScore) { bestScore = ba; bestRule = { feature, direction: d, threshold: t, score: ba }; }
+    });
+  });
+  return bestRule || { feature, direction: 'lt', threshold: 0, score: 0 };
+}
+
+/* Full evaluation: training + LOO with per-fold refit. Mirrors event_rule.evaluate_single. */
+function evaluateRule(events, g0, g1, feature, threshold, direction) {
+  const tr = evaluatePure(events, g0, g1, feature, threshold, direction);
+  const trainAccuracy = balancedAccuracy(tr.c0, tr.t0, tr.c1, tr.t1);
+  /* Binary g0-vs-g1 problem: leave-one-out scores only the two selected groups. */
+  const pair = events.filter(e => e.group === g0 || e.group === g1);
+  let looCorrect = 0;
+  const looTot = pair.length;
+  const looMissed = [];
+  for (let idx = 0; idx < pair.length; idx++) {
+    const fold = pair.filter((_, i) => i !== idx);
+    if (!fold.length) continue;
+    const sub = searchBestThreshold(fold, g0, g1, feature);
+    const held = pair[idx];
+    const ok = rulePredictsG0(held, feature, sub.threshold, sub.direction) === (held.group === g0);
+    if (ok) looCorrect++; else looMissed.push(held.id);
+  }
+  return {
+    feature, threshold, direction,
+    trainAccuracy, trainCorrect: tr.c0 + tr.c1, trainTotal: tr.t0 + tr.t1,
+    looCorrect, looTotal: looTot,
+    looAccuracy: looTot > 0 ? looCorrect / looTot : 0,
+    misclassifiedIds: tr.misclassified, looMisclassifiedIds: looMissed,
+    groupCounts: tr.groupCounts,
+  };
+}
+
+/* One interpretable rule per feature, sorted by training accuracy desc. */
+function searchRules(events, g0, g1) {
+  const results = [];
+  FEATURES.forEach(feature => {
+    const rule = searchBestThreshold(events, g0, g1, feature);
+    const res = evaluateRule(events, g0, g1, feature, rule.threshold, rule.direction);
+    results.push(res);
+  });
+  results.sort((a, b) => b.trainAccuracy - a.trainAccuracy);
+  return results;
+}
+
+/* Optional second feature (AND). Returns {combined, ...} or null if no meaningful gain. */
+function searchTwoFeature(events, g0, g1, primary) {
+  const improvement = 0.05;
+  let bar = primary.trainAccuracy + improvement;
+  let best = null;
+  FEATURES.forEach(f2 => {
+    if (f2 === primary.feature) return;
+    const c2 = searchBestThreshold(events, g0, g1, f2);
+    const v0 = events.filter(e => e.group === g0).map(e => e.features[f2]).sort((a, b) => a - b);
+    const v1 = events.filter(e => e.group === g1).map(e => e.features[f2]).sort((a, b) => a - b);
+    const merged = Array.from(new Set(v0.concat(v1))).sort((a, b) => a - b);
+    const cands = [];
+    for (let i = 0; i < merged.length - 1; i++) if (merged[i] !== merged[i + 1]) cands.push((merged[i] + merged[i + 1]) / 2);
+    cands.forEach(t2 => {
+      ['lt', 'gt'].forEach(d2 => {
+        let c0 = 0, c1 = 0, t0 = 0, t1 = 0;
+        const mis = [];
+        events.forEach(e => {
+          if (e.group !== g0 && e.group !== g1) return;
+          const p = rulePredictsG0(e, primary.feature, primary.threshold, primary.direction);
+          const p2 = rulePredictsG0(e, f2, t2, d2);
+          const predG0 = p && p2;
+          if (e.group === g0) { t0++; if (predG0) c0++; else mis.push(e.id); }
+          else { t1++; if (!predG0) c1++; else mis.push(e.id); }
+        });
+        const ba = balancedAccuracy(c0, t0, c1, t1);
+        if (ba > bar) {
+          best = { primary, combined: { f2, t2, d2 }, trainAccuracy: ba, misclassified: mis, c0, t0, c1, t1, cands };
+          bar = ba;
+        }
+      });
+    });
+  });
+  return best;
+}
+
+/* Map events → 0..1 coords with axis metadata (mirrors event_rule.map_chart). */
+function mapChart(events, xFeature, yFeature) {
+  const xv = events.map(e => e.features[xFeature]);
+  const yv = events.map(e => e.features[yFeature]);
+  const xMin = Math.min.apply(null, xv), xMax = Math.max.apply(null, xv);
+  const yMin = Math.min.apply(null, yv), yMax = Math.max.apply(null, yv);
+  const xr = xMax > xMin ? xMax - xMin : 1;
+  const yr = yMax > yMin ? yMax - yMin : 1;
+  const norm = (v, lo, hi, rng) => 0.05 + 0.90 * ((v - lo) / rng);
+  const points = events.map(e => ({ id: e.id, group: e.group, x: norm(e.features[xFeature], xMin, xMax, xr), y: norm(e.features[yFeature], yMin, yMax, yr) }));
+  const ticks = (lo, hi, rng, n = 5) => {
+    const out = [];
+    const step = Math.max(rng / (n - 1), rng * 0.01);
+    for (let i = 0, cur = lo; i < n; i++, cur += step) out.push({ label: cur.toFixed(3).replace(/\.?0+$/, ''), pos: norm(cur, lo, hi, rng) });
+    return out;
+  };
+  return { points, x: { feature: xFeature, unit: UNITS[xFeature], min: xMin, max: xMax, range: xr, ticks: ticks(xMin, xMax, xr) }, y: { feature: yFeature, unit: UNITS[yFeature], min: yMin, max: yMax, range: yr, ticks: ticks(yMin, yMax, yr) } };
+}
+
+/* Deterministic demo dataset: 4 groups × 4 = 16 events (seeded). */
+function makeDemoEvents() {
+  const rng = mulberry32(42);
+  const base = { A: [0.40, 0.35, 0.18, 1800, -48.0], B: [0.75, 0.22, 0.28, 3200, -30.0], C: [0.55, 0.30, 0.22, 2400, -38.0], D: [0.85, 0.18, 0.35, 5200, -24.0] };
+  const rows = [];
+  GROUPS.forEach(grp => {
+    for (let i = 1; i <= 4; i++) {
+      const ev = { id: grp + String(i).padStart(2, '0'), group: grp };
+      FEATURES.forEach((f, j) => {
+        const val = base[grp][j] + (rng() - 0.5) * 0.16;
+        ev[f] = Math.round(val * 10000) / 10000;
+      });
+      rows.push(ev);
+    }
+  });
+  return parseEvents(rows);
+}
+
+/* mulberry32 seeded PRNG (deterministic demo data, independent of Math.random). */
+function mulberry32(seed) {
+  let a = seed;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ── EVENT-TRAINER · SLICE 2 · CHART + UI WIRING ─────────────────────────── */
+const $ = id => document.getElementById(id);
+
+/* App state */
+let evts = [];          /* all loaded events */
+let axisX = 'impact_freq_hz';
+let axisY = 'duration_s';
+let g0 = 'A';
+let g1 = 'D';
+let currentRule = null; /* {feature, threshold, direction, result, grade} */
+
+function fmt(v, feature) {
+  if (feature === 'impact') return Number(v).toFixed(3);
+  if (feature === 'duration_s') return Number(v).toFixed(3);
+  if (feature === 'peak_time_ms') return Number(v).toFixed(1);
+  if (feature === 'impact_freq_hz') return Math.round(v);
+  return Number(v).toFixed(1);
+}
+function withUnit(v, f) { return fmt(v, f) + UNITS[f]; }
+
+function predictLabel(e) {
+  const r = currentRule;
+  return rulePredictsG0(e, r.feature, r.threshold, r.direction) ? g0 : g1;
+}
+
+/* Re-evaluate a candidate rule and store the full result (replaces relying on
+   a stored accuracy so slider moves recompute the real numbers + chart). */
+function recomputeRule(feature, threshold, direction) {
+  const result = evaluateRule(evts, g0, g1, feature, threshold, direction);
+  currentRule = { feature, threshold, direction, result };
+  return currentRule;
+}
+
+function gradeOf(res) {
+  if (res.looAccuracy >= 0.8) return 'strong';
+  if (res.looAccuracy >= 0.6) return 'usable';
+  return 'weak';
+}
+
+function ruleString(rule) {
+  const op = rule.direction === 'lt' ? '<' : '>';
+  return rule.feature + ' ' + op + ' ' + withUnit(rule.threshold, rule.feature);
+}
+
+/* ── chart renderer ─────────────────────────────────────────────────────── */
+function drawChart() {
+  const canvas = $('trainer-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const padL = 56, padR = 18, padT = 18, padB = 44;
+  const pw = W - padL - padR, ph = H - padT - padB;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0b0f19';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!evts.length) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Load or add events to build the scatter.', W / 2, H / 2);
+    ctx.textAlign = 'left';
+    return;
+  }
+
+  const map = mapChart(evts, axisX, axisY);
+
+  /* grid + ticks */
+  ctx.strokeStyle = '#24324d';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(padL, padT, pw, ph);
+  ctx.font = '10px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = '#94a3b8';
+  map.x.ticks.forEach(t => {
+    const px = padL + t.pos * pw;
+    ctx.fillText(t.label + UNITS[map.x.feature], px - 14, H - 28);
+  });
+  map.y.ticks.forEach(t => {
+    const py = padT + (1 - t.pos) * ph;
+    ctx.fillText(t.label + UNITS[map.y.feature], 10, py + 3);
+  });
+
+  /* axis labels */
+  ctx.font = 'bold 11px sans-serif';
+  ctx.fillStyle = '#cbd5e1';
+  ctx.textAlign = 'center';
+  ctx.fillText(axisX + '  (' + UNITS[axisX] + ')', padL + pw / 2, H - 8);
+  ctx.save();
+  ctx.translate(16, padT + ph / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(axisY + '  (' + UNITS[axisY] + ')', 0, 0);
+  ctx.restore();
+  ctx.textAlign = 'left';
+
+  /* threshold annotation (vertical if rule feature == x; horizontal if y) */
+  if (currentRule) {
+    const f = currentRule.feature;
+    if (f === axisX) {
+      const t = currentRule.threshold;
+      const n = (t - map.x.min) / Math.max(map.x.range, 1e-9);
+      if (n >= 0 && n <= 1) {
+        const px = padL + n * pw;
+        ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, padT + ph); ctx.stroke();
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillText('th=' + withUnit(t, f), px + 4, padT + 12);
+      }
+    } else if (f === axisY) {
+      const t = currentRule.threshold;
+      const n = (t - map.y.min) / Math.max(map.y.range, 1e-9);
+      if (n >= 0 && n <= 1) {
+        const py = padT + (1 - n) * ph;
+        ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(padL, py); ctx.lineTo(padL + pw, py); ctx.stroke();
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillText('th=' + withUnit(t, f), padL + 4, py - 8);
+      }
+    }
+  }
+
+  /* points — 4 group colors, dim events outside the selected pair */
+  map.points.forEach(p => {
+    const px = padL + p.x * pw;
+    const py = padT + (1 - p.y) * ph;
+    const isSel = p.group === g0 || p.group === g1;
+    ctx.globalAlpha = isSel ? 1 : 0.22;
+    ctx.fillStyle = GROUP_COLORS[p.group];
+    ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = isSel ? 1 : 0.4;
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = '9px monospace';
+    ctx.fillText(p.id, px + 8, py - 6);
+    ctx.globalAlpha = 1;
+
+    /* ring for misclassified (only meaningful when a rule applies to this event) */
+    if (currentRule && (p.group === g0 || p.group === g1)) {
+      const ev = evts.find(e => e.id === p.id);
+      if (ev && currentRule.result.misclassifiedIds.includes(p.id)) {
+        ctx.strokeStyle = '#f87171'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(px, py, 10, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+  });
+}
+
+/* ── data loading ───────────────────────────────────────────────────────── */
+function setEvents(rows) {
+  evts = parseEvents(rows);
+  currentRule = null;
+  $('rule-controls').style.display = 'none';
+  refreshAll();
+}
+
+function handleImport() {
+  const text = $('ftr-paste').value.trim();
+  if (!text) return;
+  const lines = text.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#'));
+  const rows = [];
+  const idx = {};
+  lines.forEach((line, i) => {
+    const parts = line.split(',').map(s => s.trim());
+    if (i === 0 && parts.includes('group') && parts.includes('impact')) {
+      parts.forEach((h, j) => idx[h] = j);
+      return;
+    }
+    const row = {};
+    if (Object.keys(idx).length) {
+      const idIdx = idx.id !== undefined ? idx.id : 0;
+      rows.push({ id: parts[idIdx], group: parts[idx.group], impact: parts[idx.impact], duration_s: parts[idx.duration_s], peak_time_ms: parts[idx.peak_time_ms], impact_freq_hz: parts[idx.impact_freq_hz], mel_mean_db: parts[idx.mel_mean_db] });
+    } else {
+      rows.push({ id: parts[0], group: parts[1], impact: parts[2], duration_s: parts[3], peak_time_ms: parts[4], impact_freq_hz: parts[5], mel_mean_db: parts[6] });
+    }
+  });
+  try { setEvents(rows); }
+  catch (err) { alert(err.message); }
+}
+
+function handleFile(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => { $('ftr-paste').value = rd.result; handleImport(); };
+  rd.readAsText(f);
+}
+
+function addManual() {
+  const row = {
+    id: $('new-id').value.trim() || 'evt_' + (evts.length + 1),
+    group: $('new-group').value,
+    impact: $('new-impact').value, duration_s: $('new-duration').value,
+    peak_time_ms: $('new-peak').value, impact_freq_hz: $('new-freq').value,
+    mel_mean_db: $('new-mel').value,
+  };
+  try {
+    const parsed = parseEvents([row]);
+    evts = evts.concat(parsed);
+    currentRule = null;
+    $('rule-controls').style.display = 'none';
+    refreshAll();
+  } catch (err) { alert(err.message); }
+}
+
+/* ── rule search / two-feature ──────────────────────────────────────────── */
+function runSearch() {
+  if (evts.length < 4) { alert('Need at least 4 events (both groups present) to search a rule.'); return; }
+  const n0 = evts.filter(e => e.group === g0).length;
+  const n1 = evts.filter(e => e.group === g1).length;
+  if (!n0 || !n1) { alert('Both selected groups need at least one event each.'); return; }
+  const rules = searchRules(evts, g0, g1);
+  const pick = rules[0];
+  const candidate = recomputeRule(pick.feature, pick.threshold, pick.direction);
+  currentRule.primaryScore = pick.trainAccuracy;
+  $('rule-controls').style.display = 'block';
+  setSliderSpan(candidate);
+  renderRuleResult();
+  drawChart();
+}
+
+function setSliderSpan(rule) {
+  const th = rule.threshold;
+  const range = sliderDomain(rule.feature);
+  $('sl-threshold').min = range.min;
+  $('sl-threshold').max = range.max;
+  $('sl-threshold').step = range.step;
+  $('sl-threshold').value = th;
+  $('sel-direction').value = rule.direction;
+  updateThValue();
+}
+
+/* Slider domain spans the observed min/max of that feature across events. */
+function sliderDomain(feature) {
+  const vals = evts.map(e => e.features[feature]);
+  let lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  const pad = (hi - lo) * 0.1 || 1;
+  lo -= pad; hi += pad;
+  return { min: lo, max: hi, step: (hi - lo) / 1000 };
+}
+
+/* Slider-driven recompute: threshold changes → true evaluation + annotations. */
+function onThresholdChange() {
+  if (!currentRule) return;
+  const t = Number($('sl-threshold').value);
+  const d = $('sel-direction').value;
+  const rule = recomputeRule(currentRule.feature, t, d);
+  renderRuleResult();
+  drawChart();
+  updateThValue();
+}
+
+function onDirectionChange() {
+  if (!currentRule) return;
+  const d = $('sel-direction').value;
+  const t = Number($('sl-threshold').value);
+  const rule = recomputeRule(currentRule.feature, t, d);
+  renderRuleResult();
+  drawChart();
+}
+
+function updateThValue() {
+  if (!currentRule) return;
+  $('th-value').textContent = ruleString(currentRule);
+}
+
+function runTwoFeature() {
+  if (!currentRule) return;
+  const two = searchTwoFeature(evts, g0, g1, currentRule);
+  const box = $('rule-formula');
+  if (!two) {
+    box.className = 'formula-box';
+    box.textContent = 'No second feature improves the rule by ≥ 5% balanced accuracy — one feature is enough.';
+    $('kpi-train-sub').textContent = 'AND search: no meaningful improvement';
+    return;
+  }
+  const p = two.combined;
+  currentRule.secondary = p;
+  box.className = 'formula-box';
+  box.textContent = 'IF ' + ruleString(currentRule) +
+    ' AND ' + p.f2 + ' ' + (p.d2 === 'lt' ? '<' : '>') + ' ' + withUnit(p.t2, p.f2) +
+    '  THEN ' + g0 + '  ELSE ' + g1;
+  $('kpi-train').textContent = (two.trainAccuracy * 100).toFixed(1) + '%';
+  $('kpi-train-sub').textContent = 'two-feature AND combination (train)';
+  drawChart();
+}
+
+function clearRule() {
+  currentRule = null;
+  $('rule-controls').style.display = 'none';
+  $('rule-formula').className = 'formula-box';
+  $('rule-formula').textContent = 'Run a threshold search to learn a rule.';
+  ['kpi-train', 'kpi-loo', 'kpi-mis', 'kpi-n'].forEach(id => $(id).textContent = '—');
+  $('kpi-train-sub').textContent = ''; $('kpi-loo-sub').textContent = '';
+  $('misclass-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:18px;">Run a search to see misclassified events.</td></tr>';
+  drawChart();
+}
+
+/* ── result rendering ───────────────────────────────────────────────────── */
+function renderRuleResult() {
+  if (!currentRule) return;
+  const r = currentRule.result;
+  $('rule-formula').className = 'formula-box';
+  $('rule-formula').textContent = 'IF ' + ruleString(currentRule) + '  THEN ' + g0 + '  ELSE ' + g1;
+  $('kpi-train').textContent = (r.trainAccuracy * 100).toFixed(1) + '%';
+  $('kpi-train-sub').textContent = 'balanced, train set · grade: ' + gradeOf(r);
+  $('kpi-loo').textContent = (r.looAccuracy * 100).toFixed(1) + '%';
+  $('kpi-loo-sub').textContent = 'LOO (thr. refit per fold)';
+  $('kpi-mis').textContent = r.misclassifiedIds.length;
+  $('kpi-n').textContent = (r.groupCounts[g0] || 0) + ' / ' + (r.groupCounts[g1] || 0);
+
+  const tb = $('misclass-tbody');
+  if (!r.misclassifiedIds.length) {
+    tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:18px;">No misclassified events on the training set with this threshold.</td></tr>';
+  } else {
+    tb.innerHTML = r.misclassifiedIds.map(id => {
+      const e = evts.find(x => x.id === id);
+      if (!e) return '';
+      return '<tr><td>' + e.id + '</td><td>' + e.group + '</td><td>' + e.group + '</td><td class="bad">' + predictLabel(e) + '</td><td class="mono">' + withUnit(e.features[currentRule.feature], currentRule.feature) + '</td></tr>';
+    }).join('');
+  }
+}
+
+function renderEventsTable() {
+  const tb = $('events-tbody');
+  if (!evts.length) {
+    tb.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:18px;">No events loaded.</td></tr>';
+    return;
+  }
+  tb.innerHTML = evts.map(e => {
+    const res = currentRule ? (currentRule.result.misclassifiedIds.includes(e.id) ? '✗' : '✓') : '—';
+    return '<tr><td>' + e.id + '</td><td><i class="swatch" style="background:' + GROUP_COLORS[e.group] + '"></i> ' + e.group + '</td>'
+      + '<td class="mono">' + fmt(e.features.impact, 'impact') + '</td>'
+      + '<td class="mono">' + fmt(e.features.duration_s, 'duration_s') + '</td>'
+      + '<td class="mono">' + fmt(e.features.peak_time_ms, 'peak_time_ms') + '</td>'
+      + '<td class="mono">' + fmt(e.features.impact_freq_hz, 'impact_freq_hz') + '</td>'
+      + '<td class="mono">' + fmt(e.features.mel_mean_db, 'mel_mean_db') + '</td>'
+      + '<td>' + res + '</td><td><button class="del" data-id="' + e.id + '">✕</button></td></tr>';
+  }).join('');
+  tb.querySelectorAll('.del').forEach(b => b.addEventListener('click', () => {
+    evts = evts.filter(x => x.id !== b.getAttribute('data-id'));
+    currentRule = null;
+    $('rule-controls').style.display = 'none';
+    refreshAll();
+  }));
+}
+
+function renderRulesTable() {
+  const tb = $('rules-tbody');
+  if (evts.length < 2) {
+    tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:18px;">Load events, then search to populate per-feature rules.</td></tr>';
+    return;
+  }
+  const rules = searchRules(evts, g0, g1);
+  tb.innerHTML = rules.map(r => {
+    const op = r.direction === 'lt' ? '<' : '>';
+    return '<tr><td>' + r.feature + '</td><td class="mono">' + r.feature + ' ' + op + ' ' + withUnit(r.threshold, r.feature) + '</td>'
+      + '<td>' + (r.trainAccuracy * 100).toFixed(1) + '%</td>'
+      + '<td>' + (r.looAccuracy * 100).toFixed(1) + '%</td>'
+      + '<td>' + r.misclassifiedIds.length + '</td></tr>';
+  }).join('');
+}
+
+function refreshAll() {
+  drawChart();
+  renderEventsTable();
+  renderRulesTable();
+  $('evt-count').textContent = evts.length + ' events';
+  $('dataBadge').textContent = evts.length ? evts.length + ' events loaded' : 'No dataset';
+  $('chart-legend').innerHTML = GROUPS.map(g =>
+    '<span><i class="swatch" style="background:' + GROUP_COLORS[g] + '"></i>' + g + ' (' + evts.filter(e => e.group === g).length + ')</span>').join('');
+}
+
+/* ── boot / event wiring ─────────────────────────────────────────────────── */
+function initAxisSelects() {
+  const xSel = $('sel-axis-x'), ySel = $('sel-axis-y');
+  FEATURES.forEach((f, i) => {
+    xSel.add(new Option(f, f));
+    ySel.add(new Option(f, f));
+  });
+  xSel.value = axisX;
+  ySel.value = axisY;
+}
+
+function init() {
+  initAxisSelects();
+  $('bt-demo-load').addEventListener('click', () => { setEvents(makeDemoEvents()); });
+  $('ftr-file').addEventListener('change', handleFile);
+  $('bt-import').addEventListener('click', handleImport);
+  $('bt-add').addEventListener('click', addManual);
+  $('bt-search').addEventListener('click', runSearch);
+  $('bt-two-feature').addEventListener('click', runTwoFeature);
+  $('bt-clear-rule').addEventListener('click', clearRule);
+  $('sl-threshold').addEventListener('input', onThresholdChange);
+  $('sel-direction').addEventListener('change', onDirectionChange);
+  $('sel-g0').addEventListener('change', () => { g0 = $('sel-g0').value; refreshAll(); });
+  $('sel-g1').addEventListener('change', () => { g1 = $('sel-g1').value; refreshAll(); });
+  $('sel-axis-x').addEventListener('change', () => { axisX = $('sel-axis-x').value; drawChart(); });
+  $('sel-axis-y').addEventListener('change', () => { axisY = $('sel-axis-y').value; drawChart(); });
+  refreshAll();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
+

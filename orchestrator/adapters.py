@@ -14,7 +14,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Mapping, Protocol, Sequence
 
 from .schemas import Failure, FailureClass, TaskEnvelope
 
@@ -153,3 +153,48 @@ class LocalSubprocessAdapter:
         if output.returncode != 0:
             return Failure(FailureClass.PROVIDER, f"subprocess exited with code {output.returncode}", retryable=True)
         return None
+
+
+class RuntimeAdapter(Protocol):
+    """Runtime adapter contract; implementations must report bounded outcomes."""
+
+    name: str
+
+    def run(self, task: TaskEnvelope, command: Sequence[str], workspace: Path) -> CommandOutput: ...
+
+    @staticmethod
+    def failure(output: CommandOutput) -> Failure | None: ...
+
+
+class UnknownRuntimeError(ValueError):
+    """No registered adapter satisfies a task's ordered runtime preferences."""
+
+
+class RuntimeRegistry:
+    """Provider-neutral adapter registry.
+
+    The built-in default is always local_subprocess. Optional adapters are
+    injected by the caller; no provider SDK, credential, or global config is
+    required by this registry.
+    """
+
+    def __init__(self, adapters: Mapping[str, RuntimeAdapter] | None = None):
+        self._adapters: dict[str, RuntimeAdapter] = {
+            "local_subprocess": LocalSubprocessAdapter()
+        }
+        if adapters:
+            self._adapters.update(adapters)
+
+    def resolve(self, task: TaskEnvelope) -> tuple[str, RuntimeAdapter]:
+        preferences = task.allowed_runtimes or ("local_subprocess",)
+        for runtime_name in preferences:
+            adapter = self._adapters.get(runtime_name)
+            if adapter is not None:
+                return runtime_name, adapter
+        requested = ", ".join(preferences)
+        raise UnknownRuntimeError(
+            f"no registered runtime matches allowed_runtimes: {requested}"
+        )
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(sorted(self._adapters))

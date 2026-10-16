@@ -14,6 +14,7 @@ Tools:
   list_wavs          — list WAVs + their labels
 """
 import asyncio, csv, json, math, os, sys
+from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import mcp.server.stdio
@@ -23,9 +24,48 @@ from mcp.server.models import InitializationOptions
 
 from ref_dsp import measure as dsp_measure
 
+from path_policy import (
+    MAX_CSV_BYTES,
+    MAX_WAV_BYTES,
+    PROJECT_ROOT,
+    PathPolicyError,
+    validate_directory,
+    validate_read_path,
+    validate_write_path,
+)
+
 DIR = os.path.dirname(os.path.abspath(__file__))
 WAVS_DIR  = os.path.join(DIR, "wavs")
 LABELS_CSV = os.path.join(DIR, "labels.csv")
+PROJECT_ROOT_DIR = PROJECT_ROOT
+WAV_INPUT_ROOT = Path(WAVS_DIR).resolve()
+WAV_READ_ROOTS = (WAV_INPUT_ROOT,)
+CSV_READ_ROOTS = (PROJECT_ROOT_DIR.resolve(),)
+MCP_OUTPUT_ROOT = (PROJECT_ROOT_DIR / "dsp_out").resolve()
+ALLOWED_WAV = {".wav"}
+ALLOWED_CSV = {".csv"}
+
+
+def _policy_failure(label: str, exc: Exception) -> dict:
+    return {"ok": False, "error": f"{label}: {exc}"}
+
+
+def _wav_relative(value: str) -> str:
+    text = str(value)
+    if text in {"wavs", "wavs/"}:
+        return "."
+    if text.startswith("wavs/"):
+        return text[len("wavs/"):]
+    return text
+
+
+def _validate_mcp_dir(value: str) -> Path:
+    text = str(value).strip()
+    if text in {"", ".", "wavs", "wavs/"}:
+        return WAV_INPUT_ROOT
+    if text.startswith("wavs/"):
+        text = text[len("wavs/"):]
+    return validate_directory(text, allowed_roots=(WAV_INPUT_ROOT,), label="wav_dir")
 
 app = Server("dsp-arena")
 
@@ -119,7 +159,7 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "wav_path": {"type": "string", "description": "Absolute path to WAV file"},
+                    "wav_path": {"type": "string", "description": "Repository-relative path to WAV file"},
                     "sr":     {"type": "integer", "default": 44100,  "description": "Sample rate"},
                     "nfft":  {"type": "integer", "default": 4096,   "description": "FFT size (power of 2)"},
                     "hop":   {"type": "integer", "default": 1024,   "description": "Hop length"},
@@ -138,9 +178,9 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "wav_dir":    {"type": "string", "description": f"WAV directory (default: {WAVS_DIR})"},
-                    "labels_csv": {"type": "string", "description": f"Labels CSV path (default: {LABELS_CSV})"},
-                    "output_csv": {"type": "string", "default": "training.csv", "description": "Output CSV filename or path"},
+                    "wav_dir":    {"type": "string", "description": "Repository-relative WAV directory (default: wavs)"},
+                    "labels_csv": {"type": "string", "description": "Repository-relative labels CSV path (default: labels.csv)"},
+                    "output_csv": {"type": "string", "default": "training.csv", "description": "Repository-relative output under dsp_out/"},
                     "sr":         {"type": "integer", "default": 44100},
                     "nfft":       {"type": "integer", "default": 4096},
                     "hop":        {"type": "integer", "default": 1024},
@@ -161,8 +201,8 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "wav_path":     {"type": "string",  "description": "Path to WAV to classify"},
-                    "training_csv": {"type": "string",  "description": "Path to training CSV"},
+                    "wav_path":     {"type": "string",  "description": "Repository-relative path to WAV to classify"},
+                    "training_csv": {"type": "string",  "description": "Repository-relative path to training CSV"},
                     "groups":       {"type": "array",   "items": {"type": "string"}, "description": "Restrict to these groups (binary: 2 groups)"},
                     "sr":    {"type": "integer", "default": 44100},
                     "nfft":  {"type": "integer", "default": 4096},
@@ -192,8 +232,8 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "wav_dir":    {"type": "string"},
-                    "labels_csv": {"type": "string"},
+                    "wav_dir":    {"type": "string", "description": "Repository-relative WAV directory"},
+                    "labels_csv": {"type": "string", "description": "Repository-relative labels CSV"},
                 },
                 "required": [],
             },
@@ -228,7 +268,11 @@ def _dispatch(name: str, args: dict) -> dict:
 # ── tool implementations ──────────────────────────────────────────────────────
 
 def _process_wav(args: dict) -> dict:
-    path = args["wav_path"]
+    try:
+        wav = validate_read_path(str(_wav_relative(args["wav_path"])), allowed_roots=WAV_READ_ROOTS, extensions=ALLOWED_WAV, maximum=MAX_WAV_BYTES, label="wav_path")
+    except PathPolicyError as exc:
+        return _policy_failure("path policy", exc)
+    path = str(wav)
     sr    = int(args.get("sr",    44100))
     nfft  = int(args.get("nfft",  4096))
     hop   = int(args.get("hop",   1024))
@@ -251,9 +295,15 @@ def _process_wav(args: dict) -> dict:
 
 
 def _batch_process(args: dict) -> dict:
-    wav_dir    = args.get("wav_dir") or WAVS_DIR
-    labels_csv = args.get("labels_csv") or LABELS_CSV
-    output_csv = args.get("output_csv", "training.csv")
+    try:
+        wav_dir_path = _validate_mcp_dir(str(_wav_relative(args.get("wav_dir") or "wavs")))
+        labels_path = validate_read_path(str(args.get("labels_csv") or "labels.csv"), allowed_roots=CSV_READ_ROOTS, extensions=ALLOWED_CSV, maximum=MAX_CSV_BYTES, label="labels_csv")
+        output_path = validate_write_path(str(args.get("output_csv", "training.csv")), output_root=MCP_OUTPUT_ROOT, extensions=ALLOWED_CSV, label="output_csv")
+    except PathPolicyError as exc:
+        return _policy_failure("path policy", exc)
+    wav_dir    = str(wav_dir_path)
+    labels_csv = str(labels_path)
+    output_csv = str(output_path)
     sr    = int(args.get("sr",    44100))
     nfft  = int(args.get("nfft",  4096))
     hop   = int(args.get("hop",   1024))
@@ -265,7 +315,15 @@ def _batch_process(args: dict) -> dict:
         return {"ok": False, "error": f"wav_dir not found: {wav_dir}"}
 
     labels = _load_labels(labels_csv)
-    wavs = sorted(f for f in os.listdir(wav_dir) if f.lower().endswith(".wav"))
+    wavs = []
+    for filename in sorted(os.listdir(wav_dir)):
+        if not filename.lower().endswith(".wav"):
+            continue
+        try:
+            validate_read_path(filename, allowed_roots=(Path(wav_dir),), extensions=ALLOWED_WAV, maximum=MAX_WAV_BYTES, label="wav file")
+        except PathPolicyError:
+            continue
+        wavs.append(filename)
 
     rows, n_ok, n_fail, group_counts = [], 0, 0, {}
     for fn in wavs:
@@ -282,8 +340,8 @@ def _batch_process(args: dict) -> dict:
         n_ok += 1
         group_counts[grp or "?"] = group_counts.get(grp or "?", 0) + 1
 
-    out_path = output_csv if os.path.isabs(output_csv) else os.path.join(DIR, output_csv)
-    os.makedirs(os.path.dirname(out_path) if os.path.dirname(out_path) else DIR, exist_ok=True)
+    out_path = output_csv
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["File", "Group"] + FEATS)
         writer.writeheader()
@@ -299,8 +357,11 @@ def _batch_process(args: dict) -> dict:
 
 
 def _classify_wav(args: dict) -> dict:
-    wav_path     = args["wav_path"]
-    training_csv = args["training_csv"]
+    try:
+        wav_path = str(validate_read_path(str(_wav_relative(args["wav_path"])), allowed_roots=WAV_READ_ROOTS, extensions=ALLOWED_WAV, maximum=MAX_WAV_BYTES, label="wav_path"))
+        training_csv = str(validate_read_path(str(args["training_csv"]), allowed_roots=CSV_READ_ROOTS, extensions=ALLOWED_CSV, maximum=MAX_CSV_BYTES, label="training_csv"))
+    except PathPolicyError as exc:
+        return _policy_failure("path policy", exc)
     groups       = args.get("groups")
     sr    = int(args.get("sr",    44100))
     nfft  = int(args.get("nfft",  4096))
@@ -365,7 +426,10 @@ def _classify_wav(args: dict) -> dict:
 
 
 def _get_separation(args: dict) -> dict:
-    csv_path = args["csv_path"]
+    try:
+        csv_path = str(validate_read_path(str(args["csv_path"]), allowed_roots=CSV_READ_ROOTS, extensions=ALLOWED_CSV, maximum=MAX_CSV_BYTES, label="csv_path"))
+    except PathPolicyError as exc:
+        return _policy_failure("path policy", exc)
     group_a  = args.get("group_a", "A").upper()
     group_b  = args.get("group_b", "B").upper()
 
@@ -418,8 +482,11 @@ def _get_separation(args: dict) -> dict:
 
 
 def _list_wavs(args: dict) -> dict:
-    wav_dir    = args.get("wav_dir") or WAVS_DIR
-    labels_csv = args.get("labels_csv") or LABELS_CSV
+    try:
+        wav_dir = str(_validate_mcp_dir(str(_wav_relative(args.get("wav_dir") or "wavs"))))
+        labels_csv = str(validate_read_path(str(args.get("labels_csv") or "labels.csv"), allowed_roots=CSV_READ_ROOTS, extensions=ALLOWED_CSV, maximum=MAX_CSV_BYTES, label="labels_csv"))
+    except PathPolicyError as exc:
+        return _policy_failure("path policy", exc)
 
     if not os.path.isdir(wav_dir):
         return {"ok": False, "error": f"directory not found: {wav_dir}"}

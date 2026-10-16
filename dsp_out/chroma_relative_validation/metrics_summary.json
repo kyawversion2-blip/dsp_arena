@@ -1,0 +1,1642 @@
+{
+  "metadata": {
+    "session_2612_files": 37,
+    "session_audio_files": 30,
+    "session_2612_ac_count": 18,
+    "session_audio_ac_count": 15
+  },
+  "intra_session_2612": {
+    "Baseline_DSP": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 18,
+        "raw_accuracy": 0.5,
+        "balanced_accuracy": 0.461,
+        "p_value_permutation": 0.599,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            2,
+            5
+          ],
+          [
+            4,
+            7
+          ]
+        ],
+        "precision_per_class": [
+          0.3333,
+          0.5833
+        ],
+        "recall_per_class": [
+          0.2857,
+          0.6364
+        ],
+        "f1_per_class": [
+          0.3077,
+          0.6087
+        ],
+        "macro_f1": 0.4582
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 18,
+        "raw_accuracy": 0.5,
+        "balanced_accuracy": 0.461,
+        "p_value_permutation": 0.519,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            2,
+            5
+          ],
+          [
+            4,
+            7
+          ]
+        ],
+        "precision_per_class": [
+          0.3333,
+          0.5833
+        ],
+        "recall_per_class": [
+          0.2857,
+          0.6364
+        ],
+        "f1_per_class": [
+          0.3077,
+          0.6087
+        ],
+        "macro_f1": 0.4582
+      }
+    },
+    "Candidate_A_Absolute_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 18,
+        "raw_accuracy": 0.6111,
+        "balanced_accuracy": 0.6299,
+        "p_value_permutation": 0.24,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            5,
+            2
+          ],
+          [
+            5,
+            6
+          ]
+        ],
+        "precision_per_class": [
+          0.5,
+          0.75
+        ],
+        "recall_per_class": [
+          0.7143,
+          0.5455
+        ],
+        "f1_per_class": [
+          0.5882,
+          0.6316
+        ],
+        "macro_f1": 0.6099
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 18,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.6494,
+        "p_value_permutation": 0.159,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            4,
+            3
+          ],
+          [
+            3,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.5714,
+          0.7273
+        ],
+        "recall_per_class": [
+          0.5714,
+          0.7273
+        ],
+        "f1_per_class": [
+          0.5714,
+          0.7273
+        ],
+        "macro_f1": 0.6494
+      }
+    },
+    "Candidate_B1_Peak_Circular_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 18,
+        "raw_accuracy": 0.7222,
+        "balanced_accuracy": 0.7208,
+        "p_value_permutation": 0.088,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            5,
+            2
+          ],
+          [
+            3,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.625,
+          0.8
+        ],
+        "recall_per_class": [
+          0.7143,
+          0.7273
+        ],
+        "f1_per_class": [
+          0.6667,
+          0.7619
+        ],
+        "macro_f1": 0.7143
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 18,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.6494,
+        "p_value_permutation": 0.131,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            4,
+            3
+          ],
+          [
+            3,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.5714,
+          0.7273
+        ],
+        "recall_per_class": [
+          0.5714,
+          0.7273
+        ],
+        "f1_per_class": [
+          0.5714,
+          0.7273
+        ],
+        "macro_f1": 0.6494
+      }
+    },
+    "Candidate_B2_RefPitch_Circular_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 18,
+        "raw_accuracy": 0.8333,
+        "balanced_accuracy": 0.8377,
+        "p_value_permutation": 0.007,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            6,
+            1
+          ],
+          [
+            2,
+            9
+          ]
+        ],
+        "precision_per_class": [
+          0.75,
+          0.9
+        ],
+        "recall_per_class": [
+          0.8571,
+          0.8182
+        ],
+        "f1_per_class": [
+          0.8,
+          0.8571
+        ],
+        "macro_f1": 0.8286
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 18,
+        "raw_accuracy": 0.8333,
+        "balanced_accuracy": 0.8377,
+        "p_value_permutation": 0.01,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            6,
+            1
+          ],
+          [
+            2,
+            9
+          ]
+        ],
+        "precision_per_class": [
+          0.75,
+          0.9
+        ],
+        "recall_per_class": [
+          0.8571,
+          0.8182
+        ],
+        "f1_per_class": [
+          0.8,
+          0.8571
+        ],
+        "macro_f1": 0.8286
+      }
+    },
+    "Candidate_C_Modal_Ratios": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 18,
+        "raw_accuracy": 0.5,
+        "balanced_accuracy": 0.539,
+        "p_value_permutation": 0.443,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            5,
+            2
+          ],
+          [
+            7,
+            4
+          ]
+        ],
+        "precision_per_class": [
+          0.4167,
+          0.6667
+        ],
+        "recall_per_class": [
+          0.7143,
+          0.3636
+        ],
+        "f1_per_class": [
+          0.5263,
+          0.4706
+        ],
+        "macro_f1": 0.4985
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 18,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.5974,
+        "p_value_permutation": 0.171,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            2,
+            5
+          ],
+          [
+            1,
+            10
+          ]
+        ],
+        "precision_per_class": [
+          0.6667,
+          0.6667
+        ],
+        "recall_per_class": [
+          0.2857,
+          0.9091
+        ],
+        "f1_per_class": [
+          0.4,
+          0.7692
+        ],
+        "macro_f1": 0.5846
+      }
+    },
+    "Candidate_D_Baseline_plus_Peak_Circular": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 18,
+        "raw_accuracy": 0.7222,
+        "balanced_accuracy": 0.7208,
+        "p_value_permutation": 0.072,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            5,
+            2
+          ],
+          [
+            3,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.625,
+          0.8
+        ],
+        "recall_per_class": [
+          0.7143,
+          0.7273
+        ],
+        "f1_per_class": [
+          0.6667,
+          0.7619
+        ],
+        "macro_f1": 0.7143
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 18,
+        "raw_accuracy": 0.5,
+        "balanced_accuracy": 0.487,
+        "p_value_permutation": 0.5,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            3,
+            4
+          ],
+          [
+            5,
+            6
+          ]
+        ],
+        "precision_per_class": [
+          0.375,
+          0.6
+        ],
+        "recall_per_class": [
+          0.4286,
+          0.5455
+        ],
+        "f1_per_class": [
+          0.4,
+          0.5714
+        ],
+        "macro_f1": 0.4857
+      }
+    }
+  },
+  "intra_session_audio": {
+    "Baseline_DSP": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 15,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.7,
+        "p_value_permutation": 0.149,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            6
+          ]
+        ],
+        "precision_per_class": [
+          0.5,
+          0.8571
+        ],
+        "recall_per_class": [
+          0.8,
+          0.6
+        ],
+        "f1_per_class": [
+          0.6154,
+          0.7059
+        ],
+        "macro_f1": 0.6606
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 15,
+        "raw_accuracy": 0.5333,
+        "balanced_accuracy": 0.5,
+        "p_value_permutation": 0.426,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            6
+          ]
+        ],
+        "precision_per_class": [
+          0.3333,
+          0.6667
+        ],
+        "recall_per_class": [
+          0.4,
+          0.6
+        ],
+        "f1_per_class": [
+          0.3636,
+          0.6316
+        ],
+        "macro_f1": 0.4976
+      }
+    },
+    "Candidate_A_Absolute_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 15,
+        "raw_accuracy": 0.8,
+        "balanced_accuracy": 0.75,
+        "p_value_permutation": 0.07,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            3,
+            2
+          ],
+          [
+            1,
+            9
+          ]
+        ],
+        "precision_per_class": [
+          0.75,
+          0.8182
+        ],
+        "recall_per_class": [
+          0.6,
+          0.9
+        ],
+        "f1_per_class": [
+          0.6667,
+          0.8571
+        ],
+        "macro_f1": 0.7619
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 15,
+        "raw_accuracy": 0.8,
+        "balanced_accuracy": 0.8,
+        "p_value_permutation": 0.038,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            4,
+            1
+          ],
+          [
+            2,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.6667,
+          0.8889
+        ],
+        "recall_per_class": [
+          0.8,
+          0.8
+        ],
+        "f1_per_class": [
+          0.7273,
+          0.8421
+        ],
+        "macro_f1": 0.7847
+      }
+    },
+    "Candidate_B1_Peak_Circular_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 15,
+        "raw_accuracy": 0.8667,
+        "balanced_accuracy": 0.9,
+        "p_value_permutation": 0.005,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            5,
+            0
+          ],
+          [
+            2,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.7143,
+          1.0
+        ],
+        "recall_per_class": [
+          1.0,
+          0.8
+        ],
+        "f1_per_class": [
+          0.8333,
+          0.8889
+        ],
+        "macro_f1": 0.8611
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 15,
+        "raw_accuracy": 0.8,
+        "balanced_accuracy": 0.8,
+        "p_value_permutation": 0.035,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            4,
+            1
+          ],
+          [
+            2,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.6667,
+          0.8889
+        ],
+        "recall_per_class": [
+          0.8,
+          0.8
+        ],
+        "f1_per_class": [
+          0.7273,
+          0.8421
+        ],
+        "macro_f1": 0.7847
+      }
+    },
+    "Candidate_B2_RefPitch_Circular_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 15,
+        "raw_accuracy": 0.4667,
+        "balanced_accuracy": 0.35,
+        "p_value_permutation": 0.832,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            0,
+            5
+          ],
+          [
+            3,
+            7
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.5833
+        ],
+        "recall_per_class": [
+          0.0,
+          0.7
+        ],
+        "f1_per_class": [
+          0.0,
+          0.6364
+        ],
+        "macro_f1": 0.3182
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 15,
+        "raw_accuracy": 0.4667,
+        "balanced_accuracy": 0.35,
+        "p_value_permutation": 0.809,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            0,
+            5
+          ],
+          [
+            3,
+            7
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.5833
+        ],
+        "recall_per_class": [
+          0.0,
+          0.7
+        ],
+        "f1_per_class": [
+          0.0,
+          0.6364
+        ],
+        "macro_f1": 0.3182
+      }
+    },
+    "Candidate_C_Modal_Ratios": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 15,
+        "raw_accuracy": 0.3333,
+        "balanced_accuracy": 0.25,
+        "p_value_permutation": 0.849,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            0,
+            5
+          ],
+          [
+            5,
+            5
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.5
+        ],
+        "recall_per_class": [
+          0.0,
+          0.5
+        ],
+        "f1_per_class": [
+          0.0,
+          0.5
+        ],
+        "macro_f1": 0.25
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 15,
+        "raw_accuracy": 0.5333,
+        "balanced_accuracy": 0.4,
+        "p_value_permutation": 0.631,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            0,
+            5
+          ],
+          [
+            2,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.6154
+        ],
+        "recall_per_class": [
+          0.0,
+          0.8
+        ],
+        "f1_per_class": [
+          0.0,
+          0.6957
+        ],
+        "macro_f1": 0.3478
+      }
+    },
+    "Candidate_D_Baseline_plus_Peak_Circular": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_samples": 15,
+        "raw_accuracy": 0.8667,
+        "balanced_accuracy": 0.9,
+        "p_value_permutation": 0.01,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            5,
+            0
+          ],
+          [
+            2,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.7143,
+          1.0
+        ],
+        "recall_per_class": [
+          1.0,
+          0.8
+        ],
+        "f1_per_class": [
+          0.8333,
+          0.8889
+        ],
+        "macro_f1": 0.8611
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_samples": 15,
+        "raw_accuracy": 0.8,
+        "balanced_accuracy": 0.8,
+        "p_value_permutation": 0.035,
+        "classes": [
+          "A",
+          "C"
+        ],
+        "confusion_matrix": [
+          [
+            4,
+            1
+          ],
+          [
+            2,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.6667,
+          0.8889
+        ],
+        "recall_per_class": [
+          0.8,
+          0.8
+        ],
+        "f1_per_class": [
+          0.7273,
+          0.8421
+        ],
+        "macro_f1": 0.7847
+      }
+    }
+  },
+  "cross_session_2612_to_audio": {
+    "Baseline_DSP": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.6,
+        "balanced_accuracy": 0.5,
+        "confusion_matrix": [
+          [
+            1,
+            4
+          ],
+          [
+            2,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.3333,
+          0.6667
+        ],
+        "recall_per_class": [
+          0.2,
+          0.8
+        ],
+        "f1_per_class": [
+          0.25,
+          0.7273
+        ],
+        "macro_f1": 0.4886
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.4,
+        "balanced_accuracy": 0.55,
+        "confusion_matrix": [
+          [
+            5,
+            0
+          ],
+          [
+            9,
+            1
+          ]
+        ],
+        "precision_per_class": [
+          0.3571,
+          1.0
+        ],
+        "recall_per_class": [
+          1.0,
+          0.1
+        ],
+        "f1_per_class": [
+          0.5263,
+          0.1818
+        ],
+        "macro_f1": 0.3541
+      }
+    },
+    "Candidate_A_Absolute_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.7333,
+        "balanced_accuracy": 0.65,
+        "confusion_matrix": [
+          [
+            2,
+            3
+          ],
+          [
+            1,
+            9
+          ]
+        ],
+        "precision_per_class": [
+          0.6667,
+          0.75
+        ],
+        "recall_per_class": [
+          0.4,
+          0.9
+        ],
+        "f1_per_class": [
+          0.5,
+          0.8182
+        ],
+        "macro_f1": 0.6591
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.5,
+        "confusion_matrix": [
+          [
+            0,
+            5
+          ],
+          [
+            0,
+            10
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.6667
+        ],
+        "recall_per_class": [
+          0.0,
+          1.0
+        ],
+        "f1_per_class": [
+          0.0,
+          0.8
+        ],
+        "macro_f1": 0.4
+      }
+    },
+    "Candidate_B1_Peak_Circular_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.6,
+        "balanced_accuracy": 0.5,
+        "confusion_matrix": [
+          [
+            1,
+            4
+          ],
+          [
+            2,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.3333,
+          0.6667
+        ],
+        "recall_per_class": [
+          0.2,
+          0.8
+        ],
+        "f1_per_class": [
+          0.25,
+          0.7273
+        ],
+        "macro_f1": 0.4886
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.55,
+        "confusion_matrix": [
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            9
+          ]
+        ],
+        "precision_per_class": [
+          0.5,
+          0.6923
+        ],
+        "recall_per_class": [
+          0.2,
+          0.9
+        ],
+        "f1_per_class": [
+          0.2857,
+          0.7826
+        ],
+        "macro_f1": 0.5342
+      }
+    },
+    "Candidate_B2_RefPitch_Circular_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.55,
+        "confusion_matrix": [
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            9
+          ]
+        ],
+        "precision_per_class": [
+          0.5,
+          0.6923
+        ],
+        "recall_per_class": [
+          0.2,
+          0.9
+        ],
+        "f1_per_class": [
+          0.2857,
+          0.7826
+        ],
+        "macro_f1": 0.5342
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.7333,
+        "balanced_accuracy": 0.6,
+        "confusion_matrix": [
+          [
+            1,
+            4
+          ],
+          [
+            0,
+            10
+          ]
+        ],
+        "precision_per_class": [
+          1.0,
+          0.7143
+        ],
+        "recall_per_class": [
+          0.2,
+          1.0
+        ],
+        "f1_per_class": [
+          0.3333,
+          0.8333
+        ],
+        "macro_f1": 0.5833
+      }
+    },
+    "Candidate_C_Modal_Ratios": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.6,
+        "balanced_accuracy": 0.5,
+        "confusion_matrix": [
+          [
+            1,
+            4
+          ],
+          [
+            2,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.3333,
+          0.6667
+        ],
+        "recall_per_class": [
+          0.2,
+          0.8
+        ],
+        "f1_per_class": [
+          0.25,
+          0.7273
+        ],
+        "macro_f1": 0.4886
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.5333,
+        "balanced_accuracy": 0.45,
+        "confusion_matrix": [
+          [
+            1,
+            4
+          ],
+          [
+            3,
+            7
+          ]
+        ],
+        "precision_per_class": [
+          0.25,
+          0.6364
+        ],
+        "recall_per_class": [
+          0.2,
+          0.7
+        ],
+        "f1_per_class": [
+          0.2222,
+          0.6667
+        ],
+        "macro_f1": 0.4444
+      }
+    },
+    "Candidate_D_Baseline_plus_Peak_Circular": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.55,
+        "confusion_matrix": [
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            9
+          ]
+        ],
+        "precision_per_class": [
+          0.5,
+          0.6923
+        ],
+        "recall_per_class": [
+          0.2,
+          0.9
+        ],
+        "f1_per_class": [
+          0.2857,
+          0.7826
+        ],
+        "macro_f1": 0.5342
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 18,
+        "n_test": 15,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.5,
+        "confusion_matrix": [
+          [
+            0,
+            5
+          ],
+          [
+            0,
+            10
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.6667
+        ],
+        "recall_per_class": [
+          0.0,
+          1.0
+        ],
+        "f1_per_class": [
+          0.0,
+          0.8
+        ],
+        "macro_f1": 0.4
+      }
+    }
+  },
+  "cross_session_audio_to_2612": {
+    "Baseline_DSP": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.6111,
+        "balanced_accuracy": 0.5,
+        "confusion_matrix": [
+          [
+            0,
+            7
+          ],
+          [
+            0,
+            11
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.6111
+        ],
+        "recall_per_class": [
+          0.0,
+          1.0
+        ],
+        "f1_per_class": [
+          0.0,
+          0.7586
+        ],
+        "macro_f1": 0.3793
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.6111,
+        "balanced_accuracy": 0.5,
+        "confusion_matrix": [
+          [
+            0,
+            7
+          ],
+          [
+            0,
+            11
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.6111
+        ],
+        "recall_per_class": [
+          0.0,
+          1.0
+        ],
+        "f1_per_class": [
+          0.0,
+          0.7586
+        ],
+        "macro_f1": 0.3793
+      }
+    },
+    "Candidate_A_Absolute_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.5556,
+        "balanced_accuracy": 0.5065,
+        "confusion_matrix": [
+          [
+            2,
+            5
+          ],
+          [
+            3,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.4,
+          0.6154
+        ],
+        "recall_per_class": [
+          0.2857,
+          0.7273
+        ],
+        "f1_per_class": [
+          0.3333,
+          0.6667
+        ],
+        "macro_f1": 0.5
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.5556,
+        "balanced_accuracy": 0.5065,
+        "confusion_matrix": [
+          [
+            2,
+            5
+          ],
+          [
+            3,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.4,
+          0.6154
+        ],
+        "recall_per_class": [
+          0.2857,
+          0.7273
+        ],
+        "f1_per_class": [
+          0.3333,
+          0.6667
+        ],
+        "macro_f1": 0.5
+      }
+    },
+    "Candidate_B1_Peak_Circular_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.6111,
+        "balanced_accuracy": 0.6299,
+        "confusion_matrix": [
+          [
+            5,
+            2
+          ],
+          [
+            5,
+            6
+          ]
+        ],
+        "precision_per_class": [
+          0.5,
+          0.75
+        ],
+        "recall_per_class": [
+          0.7143,
+          0.5455
+        ],
+        "f1_per_class": [
+          0.5882,
+          0.6316
+        ],
+        "macro_f1": 0.6099
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.5556,
+        "balanced_accuracy": 0.6104,
+        "confusion_matrix": [
+          [
+            6,
+            1
+          ],
+          [
+            7,
+            4
+          ]
+        ],
+        "precision_per_class": [
+          0.4615,
+          0.8
+        ],
+        "recall_per_class": [
+          0.8571,
+          0.3636
+        ],
+        "f1_per_class": [
+          0.6,
+          0.5
+        ],
+        "macro_f1": 0.55
+      }
+    },
+    "Candidate_B2_RefPitch_Circular_Chroma": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.4444,
+        "balanced_accuracy": 0.5195,
+        "confusion_matrix": [
+          [
+            6,
+            1
+          ],
+          [
+            9,
+            2
+          ]
+        ],
+        "precision_per_class": [
+          0.4,
+          0.6667
+        ],
+        "recall_per_class": [
+          0.8571,
+          0.1818
+        ],
+        "f1_per_class": [
+          0.5455,
+          0.2857
+        ],
+        "macro_f1": 0.4156
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.4444,
+        "balanced_accuracy": 0.3896,
+        "confusion_matrix": [
+          [
+            1,
+            6
+          ],
+          [
+            4,
+            7
+          ]
+        ],
+        "precision_per_class": [
+          0.2,
+          0.5385
+        ],
+        "recall_per_class": [
+          0.1429,
+          0.6364
+        ],
+        "f1_per_class": [
+          0.1667,
+          0.5833
+        ],
+        "macro_f1": 0.375
+      }
+    },
+    "Candidate_C_Modal_Ratios": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.5,
+        "balanced_accuracy": 0.5909,
+        "confusion_matrix": [
+          [
+            7,
+            0
+          ],
+          [
+            9,
+            2
+          ]
+        ],
+        "precision_per_class": [
+          0.4375,
+          1.0
+        ],
+        "recall_per_class": [
+          1.0,
+          0.1818
+        ],
+        "f1_per_class": [
+          0.6087,
+          0.3077
+        ],
+        "macro_f1": 0.4582
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.6111,
+        "balanced_accuracy": 0.5,
+        "confusion_matrix": [
+          [
+            0,
+            7
+          ],
+          [
+            0,
+            11
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.6111
+        ],
+        "recall_per_class": [
+          0.0,
+          1.0
+        ],
+        "f1_per_class": [
+          0.0,
+          0.7586
+        ],
+        "macro_f1": 0.3793
+      }
+    },
+    "Candidate_D_Baseline_plus_Peak_Circular": {
+      "nearest_centroid": {
+        "classifier": "nearest_centroid",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.6111,
+        "balanced_accuracy": 0.5,
+        "confusion_matrix": [
+          [
+            0,
+            7
+          ],
+          [
+            0,
+            11
+          ]
+        ],
+        "precision_per_class": [
+          0.0,
+          0.6111
+        ],
+        "recall_per_class": [
+          0.0,
+          1.0
+        ],
+        "f1_per_class": [
+          0.0,
+          0.7586
+        ],
+        "macro_f1": 0.3793
+      },
+      "logistic_regression": {
+        "classifier": "logistic_regression",
+        "n_train": 15,
+        "n_test": 18,
+        "raw_accuracy": 0.6667,
+        "balanced_accuracy": 0.6494,
+        "confusion_matrix": [
+          [
+            4,
+            3
+          ],
+          [
+            3,
+            8
+          ]
+        ],
+        "precision_per_class": [
+          0.5714,
+          0.7273
+        ],
+        "recall_per_class": [
+          0.5714,
+          0.7273
+        ],
+        "f1_per_class": [
+          0.5714,
+          0.7273
+        ],
+        "macro_f1": 0.6494
+      }
+    }
+  },
+  "frequency_reference_audit": {
+    "session_2612": {
+      "freq_mean": 2660.3,
+      "freq_std": 1047.3,
+      "freq_min": 712.8,
+      "freq_max": 3865.5,
+      "pitch_classes_observed": [
+        2,
+        5,
+        8,
+        10,
+        11
+      ],
+      "pitch_class_counts": {
+        "10": 9,
+        "11": 6,
+        "8": 1,
+        "2": 1,
+        "5": 1
+      }
+    },
+    "session_audio": {
+      "freq_mean": 1966.5,
+      "freq_std": 1499.9,
+      "freq_min": 623.0,
+      "freq_max": 4946.5,
+      "pitch_classes_observed": [
+        3,
+        6,
+        8,
+        10,
+        11
+      ],
+      "pitch_class_counts": {
+        "3": 8,
+        "10": 4,
+        "6": 1,
+        "8": 1,
+        "11": 1
+      }
+    }
+  }
+}

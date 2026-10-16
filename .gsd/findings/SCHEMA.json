@@ -1,0 +1,5 @@
+{
+  "required": ["id","role","severity","status","title","claim","paths","evidence","invariant","recommendation","confidence"],
+  "severity": ["CRITICAL","HIGH","MEDIUM","LOW"],
+  "status": ["OPEN","CONFIRMED","REJECTED","INCONCLUSIVE"]
+}

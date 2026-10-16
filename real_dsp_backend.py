@@ -7,9 +7,11 @@ Optimized for Apple Silicon M4 / macOS & Real CSV Replay / Live Mic.
 
 import argparse
 import asyncio
+import json
 import os
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -18,6 +20,10 @@ import pandas as pd
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from network_policy import NetworkPolicy, NetworkPolicyError
 from fastapi.responses import HTMLResponse
 from scipy.fft import rfft, rfftfreq
 from scipy.signal import butter, sosfiltfilt, hilbert
@@ -36,14 +42,30 @@ MAX_DURATION = 1.0         # Strict G2: Reject continuous transient > 1.0s
 BLOCKSIZE = 1024           # Audio chunk size for mic callback
 
 app = FastAPI(title="RIPPLE DSP Backend")
+try:
+    NETWORK_POLICY = NetworkPolicy.from_environment(port=int(os.environ.get("PORT", "8765")))
+except NetworkPolicyError as exc:
+    raise RuntimeError(f"Unsafe network configuration: {exc}") from exc
+
+class _NetworkBoundaryMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        reason = NETWORK_POLICY.validate_request(
+            host=request.headers.get("host"), origin=request.headers.get("origin"),
+            token=NETWORK_POLICY.token_from_headers(request.headers),
+        )
+        if reason:
+            return JSONResponse(status_code=403, content={"detail": reason})
+        return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(NETWORK_POLICY.allowed_origins),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-DSP-Auth-Token"],
 )
+app.add_middleware(_NetworkBoundaryMiddleware)
 
 WORKSPACE_DIR = Path(__file__).resolve().parent
 
@@ -66,26 +88,195 @@ async def serve_scout():
 # WEBSOCKET MANAGER
 # ==========================================
 class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-
-    async def broadcast(self, message: dict):
-        dead = []
-        for connection in self.active_connections:
+    """Manages active WebSocket connections for real-time broadcasts with heartbeat support."""
+    
+    HEARTBEAT_INTERVAL = 30.0  # seconds
+    HEARTBEAT_TIMEOUT = 90.0   # seconds
+    MAX_CONNECTIONS = 100
+    
+    def __init__(self) -> None:
+        self._active: dict[str, dict] = {}  # client_id -> {ws, connected_at, last_heartbeat, last_activity, authenticated, message_count}
+        self._heartbeat_task: asyncio.Task | None = None
+        self._cleanup_task: asyncio.Task | None = None
+    
+    def _generate_client_id(self) -> str:
+        return f"ws_{uuid.uuid4().hex[:12]}"
+    
+    async def start_background_tasks(self) -> None:
+        if self._heartbeat_task is None:
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(), name="ws-heartbeat")
+        if self._cleanup_task is None:
+            self._cleanup_task = asyncio.create_task(self._cleanup_loop(), name="ws-cleanup")
+    
+    async def stop_background_tasks(self) -> None:
+        for task in (self._heartbeat_task, self._cleanup_task):
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._heartbeat_task = None
+        self._cleanup_task = None
+    
+    async def _heartbeat_loop(self) -> None:
+        while True:
             try:
-                await connection.send_json(message)
+                await asyncio.sleep(self.HEARTBEAT_INTERVAL)
+                now = time.time()
+                stale = []
+                
+                for client_id, info in self._active.items():
+                    if now - info["last_heartbeat"] > self.HEARTBEAT_TIMEOUT:
+                        stale.append(client_id)
+                    else:
+                        try:
+                            await info["ws"].send_json({
+                                "type": "heartbeat",
+                                "timestamp": now,
+                                "server_time": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                            })
+                        except Exception:
+                            stale.append(client_id)
+                
+                for client_id in stale:
+                    await self._force_disconnect(client_id, code=1001, reason="Heartbeat timeout")
+                    
+            except asyncio.CancelledError:
+                break
             except Exception:
-                dead.append(connection)
-        for c in dead:
-            self.disconnect(c)
+                pass
+    
+    async def _cleanup_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(60.0)
+                now = time.time()
+                stale = []
+                
+                for client_id, info in self._active.items():
+                    if now - info.get("last_activity", now) > 300.0:
+                        stale.append(client_id)
+                
+                for client_id in stale:
+                    await self._force_disconnect(client_id, code=1001, reason="Inactivity timeout")
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                pass
+    
+    async def _force_disconnect(self, client_id: str, code: int = 1000, reason: str = "Normal closure") -> None:
+        info = self._active.pop(client_id, None)
+        if info:
+            try:
+                await info["ws"].close(code=code, reason=reason)
+            except Exception:
+                pass
+    
+    async def connect(self, ws: WebSocket) -> str:
+        if len(self._active) >= self.MAX_CONNECTIONS:
+            await ws.close(code=1013, reason="Server busy - max connections reached")
+            raise WebSocketDisconnect(code=1013, reason="Max connections reached")
+        
+        await ws.accept()
+        client_id = self._generate_client_id()
+        now = time.time()
+        
+        self._active[client_id] = {
+            "ws": ws,
+            "connected_at": now,
+            "last_heartbeat": now,
+            "last_activity": now,
+            "authenticated": False,
+            "message_count": 0
+        }
+        
+        try:
+            await ws.send_json({
+                "type": "connect",
+                "client_id": client_id,
+                "timestamp": now,
+                "server_time": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                "heartbeat_interval": self.HEARTBEAT_INTERVAL
+            })
+        except Exception:
+            await self._force_disconnect(client_id)
+            raise
+            
+        return client_id
+    
+    def disconnect(self, ws: WebSocket) -> str | None:
+        for client_id, info in self._active.items():
+            if info["ws"] is ws:
+                del self._active[client_id]
+                return client_id
+        return None
+    
+    def disconnect_by_id(self, client_id: str) -> bool:
+        if client_id in self._active:
+            del self._active[client_id]
+            return True
+        return False
+    
+    def get_connection(self, client_id: str) -> dict | None:
+        return self._active.get(client_id)
+    
+    def update_heartbeat(self, client_id: str) -> bool:
+        info = self._active.get(client_id)
+        if info:
+            info["last_heartbeat"] = time.time()
+            info["last_activity"] = time.time()
+            return True
+        return False
+    
+    def update_activity(self, client_id: str) -> bool:
+        info = self._active.get(client_id)
+        if info:
+            info["last_activity"] = time.time()
+            info["message_count"] = info.get("message_count", 0) + 1
+            return True
+        return False
+    
+    async def broadcast(self, payload: dict) -> int:
+        if not self._active:
+            return 0
+            
+        sent = 0
+        stale = []
+        
+        for client_id, info in self._active.items():
+            try:
+                await info["ws"].send_json(payload)
+                sent += 1
+            except Exception:
+                stale.append(client_id)
+        
+        for client_id in stale:
+            await self._force_disconnect(client_id, code=1011, reason="Send failed")
+            
+        return sent
+    
+    @property
+    def client_count(self) -> int:
+        return len(self._active)
+    
+    def get_stats(self) -> dict:
+        now = time.time()
+        return {
+            "total_connections": len(self._active),
+            "connections": [
+                {
+                    "client_id": cid,
+                    "connected_at": info["connected_at"],
+                    "duration": now - info["connected_at"],
+                    "last_heartbeat": info["last_heartbeat"],
+                    "message_count": info.get("message_count", 0),
+                    "authenticated": info.get("authenticated", False)
+                }
+                for cid, info in self._active.items()
+            ]
+        }
 
 manager = ConnectionManager()
 event_counter = 0
@@ -358,6 +549,13 @@ async def process_event(audio_chunk: np.ndarray, cluster_label: str = "UNLABELED
 @app.websocket("/ws/dsp")
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    reason = NETWORK_POLICY.validate_request(
+        host=websocket.headers.get("host"), origin=websocket.headers.get("origin"),
+        token=NETWORK_POLICY.token_from_websocket(websocket),
+    )
+    if reason:
+        await websocket.close(code=1008, reason=reason)
+        return
     await manager.connect(websocket)
     try:
         while True:
@@ -395,7 +593,7 @@ def main():
         replay_controller = ReplayController(args.csv, loop, loop_forever=args.loop)
         loop.create_task(replay_controller.run_loop())
 
-    config = uvicorn.Config(app, host="0.0.0.0", port=args.port, loop="asyncio")
+    config = uvicorn.Config(app, host=NETWORK_POLICY.host, port=args.port, loop="asyncio")
     server = uvicorn.Server(config)
     
     print(f"============================================================")

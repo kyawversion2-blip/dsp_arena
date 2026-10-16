@@ -500,6 +500,194 @@ def measure_features(y, sr, nfft, hop, top_db, win, fmax=None):
 # still matches the pinned pre-3A legacy reference, while an explicit fmax
 # genuinely truncates every frequency-domain feature to f_c.
 
+
+# ---------------------------------------------------------------------------
+# Auxiliary Feature: 12-Pitch Chroma Music Note Feature (Phase 1)
+# ---------------------------------------------------------------------------
+
+CHROMA_NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+
+def _empty_chroma_response(status: str, sr: int) -> dict:
+    zeros = [0.0] * 12
+    res = {
+        "status": status,
+        "sample_rate_hz": sr,
+        "analysis_window_ms": 0.0,
+        "attack_window_ms": 0.0,
+        "ringdown_window_ms": 0.0,
+        "dominant_note": None,
+        "dominant_index": -1,
+        "purity": 0.0,
+        "chroma_12": zeros,
+        "chroma_attack_12": zeros,
+        "chroma_ringdown_12": zeros,
+        "dominant_note_attack": None,
+        "dominant_note_ringdown": None,
+        "purity_attack": 0.0,
+        "purity_ringdown": 0.0,
+    }
+    for i, name in enumerate(CHROMA_NOTE_NAMES):
+        clean_name = name.replace("#", "Sharp")
+        res[f"chroma_{clean_name}"] = 0.0
+        res[f"chroma_attack_{clean_name}"] = 0.0
+        res[f"chroma_ringdown_{clean_name}"] = 0.0
+    return res
+
+
+def compute_chroma_12(
+    y,
+    sr: int = 44100,
+    n_fft: int = 2048,
+    hop_length: int = 512,
+    tuning: float = 0.0,
+    detect_transient: bool = True,
+) -> dict:
+    """Extracts 12-pitch chroma features (C through B) from audio.
+
+    Designed for ceramic impact transients (Teetotum plate strikes).
+    Supports:
+      1. Robust handling of edge cases (silent, short, NaNs, non-finite).
+      2. Event-centric transient slicing separating Attack vs Ringdown phases.
+      3. Auxiliary representation: C to B 12-D vectors + dominant note & purity.
+    """
+    if y is None:
+        return _empty_chroma_response("invalid_input", sr)
+
+    try:
+        y_arr = np.asarray(y, dtype=np.float64)
+    except Exception:
+        return _empty_chroma_response("invalid_input", sr)
+
+    if y_arr.ndim != 1 or not np.isfinite(y_arr).all():
+        return _empty_chroma_response("invalid_input", sr)
+
+    if len(y_arr) < 32:
+        return _empty_chroma_response("too_short", sr)
+
+    peak_val = float(np.max(np.abs(y_arr)))
+    if peak_val < 1e-7:
+        return _empty_chroma_response("silent", sr)
+
+    # Transient window localization for physical impacts
+    if detect_transient and len(y_arr) >= int(sr * 0.02):
+        abs_y = np.abs(y_arr)
+        peak_idx = int(np.argmax(abs_y))
+        thresh = 0.10 * peak_val
+        active_indices = np.where(abs_y >= thresh)[0]
+        if len(active_indices) > 0:
+            onset_idx = max(0, active_indices[0] - int(sr * 0.002))
+            offset_idx = min(len(y_arr), active_indices[-1] + int(sr * 0.005))
+        else:
+            onset_idx = max(0, peak_idx - int(sr * 0.010))
+            offset_idx = min(len(y_arr), peak_idx + int(sr * 0.080))
+
+        if offset_idx <= onset_idx + 32:
+            onset_idx = max(0, peak_idx - int(sr * 0.010))
+            offset_idx = min(len(y_arr), peak_idx + int(sr * 0.080))
+
+        full_seg = y_arr[onset_idx:offset_idx]
+        att_end = max(peak_idx + int(sr * 0.005), onset_idx + 128)
+        att_seg = y_arr[onset_idx:min(len(y_arr), att_end)]
+        ring_start = min(peak_idx, len(y_arr) - 64)
+        ring_seg = y_arr[ring_start:offset_idx]
+    else:
+        full_seg = y_arr
+        peak_idx = int(np.argmax(np.abs(y_arr)))
+        att_end = max(peak_idx, len(y_arr) // 3)
+        att_seg = y_arr[:max(32, att_end)]
+        ring_seg = y_arr[min(len(y_arr) - 32, att_end):]
+
+    def _calc_vector(seg):
+        if len(seg) < 32 or float(np.max(np.abs(seg))) < 1e-7:
+            return [0.0] * 12, None, -1, 0.0
+
+        eff_nfft = min(n_fft, len(seg))
+        if eff_nfft % 2 != 0:
+            eff_nfft -= 1
+        if eff_nfft < 32:
+            eff_nfft = 32
+            seg = np.pad(seg, (0, 32 - len(seg)))
+
+        eff_hop = max(1, min(hop_length, eff_nfft // 4))
+        try:
+            ch = librosa.feature.chroma_stft(
+                y=seg,
+                sr=sr,
+                n_fft=eff_nfft,
+                hop_length=eff_hop,
+                tuning=tuning,
+            )
+            v = np.mean(ch, axis=1)
+            v_sum = float(np.sum(v))
+            if v_sum > 1e-12:
+                v_norm = (v / np.linalg.norm(v)).tolist()
+                dom_i = int(np.argmax(v))
+                dom_note = CHROMA_NOTE_NAMES[dom_i]
+                purity = float(v[dom_i] / v_sum)
+                return [round(float(x), 6) for x in v_norm], dom_note, dom_i, round(purity, 4)
+            return [0.0] * 12, None, -1, 0.0
+        except Exception:
+            return [0.0] * 12, None, -1, 0.0
+
+    c_full, dom_full, dom_i_full, purity_full = _calc_vector(full_seg)
+    c_att, dom_att, dom_i_att, purity_att = _calc_vector(att_seg)
+    c_ring, dom_ring, dom_i_ring, purity_ring = _calc_vector(ring_seg)
+
+    res = {
+        "status": "ok",
+        "sample_rate_hz": sr,
+        "analysis_window_ms": round(float(len(full_seg) * 1000.0 / sr), 2),
+        "attack_window_ms": round(float(len(att_seg) * 1000.0 / sr), 2),
+        "ringdown_window_ms": round(float(len(ring_seg) * 1000.0 / sr), 2),
+        "dominant_note": dom_full,
+        "dominant_index": dom_i_full,
+        "purity": purity_full,
+        "chroma_12": c_full,
+        "chroma_attack_12": c_att,
+        "chroma_ringdown_12": c_ring,
+        "dominant_note_attack": dom_att,
+        "dominant_note_ringdown": dom_ring,
+        "purity_attack": purity_att,
+        "purity_ringdown": purity_ring,
+    }
+
+    for i, name in enumerate(CHROMA_NOTE_NAMES):
+        clean_name = name.replace("#", "Sharp")
+        res[f"chroma_{clean_name}"] = c_full[i]
+        res[f"chroma_attack_{clean_name}"] = c_att[i]
+        res[f"chroma_ringdown_{clean_name}"] = c_ring[i]
+
+    return res
+
+
+def compute_chroma_circular_relative(
+    chroma_12: list[float] | np.ndarray,
+    ref_pitch_idx: int | None = None,
+) -> list[float]:
+    """Helper: Circularly shifts 12-bin chroma vector so reference pitch class is at index 0.
+
+    If ref_pitch_idx is None, aligns to the peak chroma bin.
+    Returns a 12-element list of float values rounded to 6 decimal places.
+    Safe against empty, silent, NaN, Inf, or invalid input.
+    """
+    if chroma_12 is None:
+        return [0.0] * 12
+    v = np.asarray(chroma_12, dtype=np.float64)
+    if v.ndim != 1 or len(v) != 12 or not np.isfinite(v).all():
+        return [0.0] * 12
+    if np.max(np.abs(v)) < 1e-9:
+        return [0.0] * 12
+
+    if ref_pitch_idx is None or not (0 <= ref_pitch_idx < 12):
+        ref_idx = int(np.argmax(v))
+    else:
+        ref_idx = int(ref_pitch_idx)
+
+    shifted = np.roll(v, -ref_idx)
+    return [round(float(x), 6) for x in shifted]
+
+
 # ---------------------------------------------------------------------------
 # 2. labels + dataset
 # ---------------------------------------------------------------------------

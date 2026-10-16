@@ -17,13 +17,14 @@
   Axes:             X = f₀ (Hz, log) · Y = tₚ (ms) · Z = σ (s⁻¹)
   Encodings:        size = E·e^(−tₚ/τ_d) · hue = band(f; f₁, f₂) · glow = Q = πf₀/σ
 
-  Live link (section 14): WebSocket client tries ws://localhost:8000/ws first, then
-  /ws/dsp, /ws/dsp-stream (override with ?ws=…, disable with ?wsoff). Accepts per-impact
-  JSON — {frequency|f0|peak_frequency, laplace_sigma|sigma|decay_rate, energy|rms|impact,
-  peak_time_ms|peak_time|duration, cluster|group|label} — flat or wrapped in
-  {type:'triggered_event', payload:{…}}. First real event switches the lab to LIVE FEED
-  (ring buffer, cap 640); anchors-protocol replies are recognized and ignored. If the
-  socket is offline the synthetic ensemble remains as SIM fallback (amber chip).
+Live link (section 14): WebSocket client tries ws://localhost:8765/ws/dsp-stream first (live_server.py), then
+   /ws, /ws/dsp, /ws/dsp-stream on localhost:8000 (backend/main.py). Accepts per-impact
+   JSON — {frequency|f0|peak_frequency, laplace_sigma|sigma|decay_rate, energy|rms|impact,
+   peak_time_ms|peak_time|duration, cluster|group|label} — flat or wrapped in
+   {type:'triggered_event', payload:{…}}. First real event switches the lab to LIVE FEED
+   (ring buffer, cap 640); anchors-protocol replies are recognized and ignored. If the
+   socket is offline the synthetic ensemble remains as SIM fallback (amber chip).
+   WebSocket URLs can be overridden via ?ws=ws://host:port/path, or disabled with ?wsoff.
 
   Engine notes (project guardrail spirit, G1/G2):
    · All per-event state lives in preallocated Float32/Uint8 SoA arrays.
@@ -199,12 +200,13 @@ input[type=range]:focus-visible{outline:1px solid rgba(58,227,255,.5); outline-o
 #method-hint{color:var(--amber); margin:6px 0 2px; white-space:normal; line-height:1.5}
 #method-table{display:flex; flex-direction:column; gap:5px; margin-top:8px}
 .mrow{display:flex; align-items:center; gap:7px; font:400 9px var(--fm)}
-.mrow .mn{width:98px; color:var(--ink-dim); flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.mrow .mn{width:84px; color:var(--ink-dim); flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .mrow .mbar{flex:1; height:6px; border-radius:3px; background:rgba(140,170,255,.1); overflow:hidden}
 .mrow .mbar i{display:block; height:100%; border-radius:3px; background:linear-gradient(90deg,var(--cyan),var(--violet))}
-.mrow .mv{width:36px; text-align:right; color:var(--ink-faint); flex-shrink:0}
-.mrow .mp{width:64px; text-align:right; color:var(--ink-faint); flex-shrink:0; font-size:8px}
+.mrow .mv{width:46px; text-align:right; color:var(--ink-faint); flex-shrink:0}
+.mrow .mp{width:90px; text-align:right; color:var(--ink-faint); flex-shrink:0; font-size:7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .mrow.best .mn{color:var(--cyan)}
+.mrow.missing{opacity:.58}
 
 /* range-edit (adjustable slider bounds) */
 .rng-edit{display:flex; align-items:center; gap:4px; margin-top:3px}
@@ -285,6 +287,10 @@ canvas.mini{width:100%; border:1px solid var(--line-soft); border-radius:8px; ba
 }
 @media (max-width:900px){
   #panel-math{display:none} .stats .opt{display:none}
+  .mrow{gap:4px}
+  .mrow .mn{width:74px}
+  .mrow .mv{width:40px}
+  .mrow .mp{width:72px; font-size:6.5px}
 }
 
 /* ─────────────────────────── DSP ARENA MERGED UI ─────────────────────────── */
@@ -520,7 +526,11 @@ canvas.mini{width:100%; border:1px solid var(--line-soft); border-radius:8px; ba
         <button class="btn" id="dsp-bt-exportcsv" type="button" style="flex:1">💾 Export</button>
         <input id="dsp-csv-file" type="file" accept=".csv,text/csv" style="display:none">
       </div>
+      <div style="display:flex; justify-content:flex-end; margin-top:4px">
+        <button class="btn" id="dsp-bt-templatecsv" type="button" style="font-size:9px; padding:4px 7px">⇩ Download CSV template</button>
+      </div>
       <div id="dsp-fileinfo" style="font:500 9px var(--fm); color:var(--ink-dim); margin-top:5px; word-break:break-all">no DSP dataset loaded</div>
+      <div style="font:500 8px/1.5 var(--fm); color:var(--ink-faint); margin-top:4px">Required for feature chart: Impact_Freq_Hz (Hz), Laplace_Sigma_Fit (s⁻¹), Group (A/B/C/D). Optional: FFT_Centroid_Hz, HFSR, Autocorr_Peak. Leave unknown values blank; do not enter 0 as a substitute.</div>
 
       <!-- Auto-search: MAKE-SIMILAR & MAKE-DIFFERENT -->
       <div style="margin-top:10px; border-top:1px solid var(--line-soft); padding-top:8px">
@@ -566,6 +576,26 @@ canvas.mini{width:100%; border:1px solid var(--line-soft); border-radius:8px; ba
       </div>
       <div class="sl-sub" id="method-hint">⚠ upload a CSV with a Group column to compare methods</div>
       <div id="method-table"></div>
+    </div>
+
+    <div class="sect acc-v" id="dsp-ai-sect">
+      <div class="sect-h"><span class="t">AI&nbsp;·&nbsp;<em>MODEL LAB</em></span><span class="rule"></span></div>
+      <div style="font:500 9px/1.5 var(--fm);color:var(--ink-dim);margin:2px 0 8px">Run DSP feature analysis or AI-assisted group suggestions with a server-configured API key. No CSV is sent until you press Run.</div>
+      <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+        <label for="dsp-ai-provider" style="font:600 9px var(--fm);align-self:center">Provider</label>
+        <select id="dsp-ai-provider" class="sel-method" style="flex:1;min-width:110px">
+          <option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="claude">Claude</option><option value="gemini">Gemini</option>
+        </select>
+        <select id="dsp-ai-model" class="sel-method" style="flex:1.4;min-width:130px"><option value="deepseek-chat">deepseek-chat</option></select>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:7px">
+        <select id="dsp-ai-task" class="sel-method" style="flex:1">
+          <option value="feature_analysis">Feature analysis</option><option value="classify">AI group suggestions</option>
+        </select>
+        <button class="btn" id="dsp-ai-run" type="button" style="flex:1.2">▶ Run AI</button>
+      </div>
+      <div id="dsp-ai-status" role="status" style="font:500 9px/1.5 var(--fm);color:var(--ink-dim);margin-bottom:7px">Checking server AI configuration…</div>
+      <pre id="dsp-ai-result" style="display:none;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;padding:9px;background:var(--panel);border:1px solid var(--line-soft);border-radius:7px;font:400 10px/1.55 var(--fm);color:var(--ink)"></pre>
     </div>
 
     <div class="sect acc-v">
@@ -691,6 +721,166 @@ canvas.mini{width:100%; border:1px solid var(--line-soft); border-radius:8px; ba
     </div>
   </aside>
 
+  <!-- ── AUXILIARY CHROMA DIAGNOSTIC PANEL (Phase 3) ── -->
+  <aside id="panel-chroma" class="glass brk hud-panel" style="position:static; margin-top:8px">
+    <div class="p-head">
+      <span class="p-glyph">♫</span>
+      <span class="p-title">AUXILIARY&nbsp;<b>CHROMA</b></span>
+      <button class="clps" id="bt-showhide-chroma" type="button" title="Show/Hide Auxiliary Chroma Panel" style="margin-left:8px">👁</button>
+      <div class="seg mini" id="chroma-tab-seg" role="group" style="margin-left:auto">
+        <button data-ctab="live" type="button" class="on">EVENT</button>
+        <button data-ctab="compare" type="button">A vs C</button>
+        <button data-ctab="audit" type="button">LIMITS</button>
+      </div>
+      <button class="clps" data-t="panel-chroma" aria-label="collapse">−</button>
+    </div>
+    <div class="p-body" style="max-height:420px; overflow-y:auto">
+      
+      <!-- Prominent Disclaimers -->
+      <div style="background:rgba(251,191,36,.09); border:1px solid rgba(251,191,36,.32); border-radius:6px; padding:6px 9px; margin-bottom:8px">
+        <div style="font:700 9px var(--fd); color:var(--amber); letter-spacing:.08em; display:flex; align-items:center; gap:5px">
+          <span>⚠</span> <span>AUXILIARY DIAGNOSTIC ONLY</span>
+        </div>
+        <div style="font:400 8.5px var(--fm); color:var(--ink-dim); line-height:1.45; margin-top:3px">
+          The <b>2×2 Ruler</b> remains the authoritative primary classifier. Cross-session generalization is <b>not established</b> (intra-session accuracy: 72–90% | cross-session: ~50–56%). Inharmonic plate vibration modes are non-transposable across differing recording geometries.
+        </div>
+      </div>
+
+      <!-- Tab 1: Live Event / Inspected Particle Chroma -->
+      <div id="chroma-tab-live" class="chroma-tabcontent">
+        <div class="igrid" style="grid-template-columns:repeat(3,1fr); margin-bottom:8px">
+          <div class="ifield">
+            <span class="il">DOMINANT NOTE</span>
+            <span class="iv" id="cr-dom" style="color:var(--cyan); font-weight:700">—</span>
+          </div>
+          <div class="ifield">
+            <span class="il">SPECTRAL PURITY</span>
+            <span class="iv" id="cr-purity" style="color:var(--violet)">—</span>
+          </div>
+          <div class="ifield">
+            <span class="il">STATUS</span>
+            <span class="iv" id="cr-status" style="font-size:8.5px">NO TARGET</span>
+          </div>
+        </div>
+
+        <!-- Absolute 12-Bin Pitch-Class Bar -->
+        <div style="margin-bottom:8px">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px">
+            <span style="font:700 9px var(--fd); color:var(--ink-dim); letter-spacing:.08em">ABSOLUTE 12-BIN CHROMA</span>
+            <span style="font:400 8px var(--fm); color:var(--ink-faint)">Semitione Energy (C .. B)</span>
+          </div>
+          <div id="cr-abs-bars" style="display:flex; gap:2px; height:46px; background:rgba(6,10,22,.5); border:1px solid var(--line-soft); border-radius:6px; padding:4px 3px; align-items:flex-end">
+          </div>
+          <div style="display:flex; justify-content:space-between; font:600 7.5px var(--fm); color:var(--ink-faint); margin-top:2px; padding:0 2px">
+            <span>C</span><span>C#</span><span>D</span><span>D#</span><span>E</span><span>F</span><span>F#</span><span>G</span><span>G#</span><span>A</span><span>A#</span><span>B</span>
+          </div>
+        </div>
+
+        <!-- Peak-Aligned Relative Circular Chroma Bar -->
+        <div style="margin-bottom:8px">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px">
+            <span style="font:700 9px var(--fd); color:var(--amber); letter-spacing:.08em">PEAK-ALIGNED CIRCULAR CHROMA</span>
+            <span style="font:400 8px var(--fm); color:var(--amber); opacity:.85">Relative Fingerprint (Bin 0 = Peak)</span>
+          </div>
+          <div id="cr-circ-bars" style="display:flex; gap:2px; height:46px; background:rgba(6,10,22,.5); border:1px solid var(--line-soft); border-radius:6px; padding:4px 3px; align-items:flex-end">
+          </div>
+          <div style="display:flex; justify-content:space-between; font:600 7px var(--fm); color:var(--ink-faint); margin-top:2px; padding:0 1px">
+            <span>Pk</span><span>+1</span><span>+2</span><span>+3</span><span>+4</span><span>+5</span><span>+6</span><span>+7</span><span>+8</span><span>+9</span><span>+10</span><span>+11</span>
+          </div>
+          <div style="font:400 7.5px var(--fm); color:var(--ink-faint); margin-top:3px; line-height:1.3">
+            * Circular rotation removes musical transposition, but masks peak-frequency shifts. Both representations preserved.
+          </div>
+        </div>
+
+        <!-- Transient Attack vs Ring-Down Split -->
+        <div style="background:rgba(6,10,22,.4); border:1px solid var(--line-soft); border-radius:6px; padding:6px; margin-top:6px">
+          <div style="display:flex; justify-content:space-between; font:700 8.5px var(--fd); color:var(--ink-dim); margin-bottom:4px">
+            <span>TRANSIENT SPLIT (ATTACK vs RING-DOWN)</span>
+            <span id="cr-win-dur" style="color:var(--ink-faint); font-family:var(--fm)">— ms</span>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font:400 8.5px var(--fm)">
+            <div>
+              <span style="color:var(--violet)">Attack: </span><b id="cr-att-note">—</b> <span id="cr-att-pur" style="color:var(--ink-faint)">(—)</span>
+            </div>
+            <div>
+              <span style="color:var(--cyan)">Ring-down: </span><b id="cr-ring-note">—</b> <span id="cr-ring-pur" style="color:var(--ink-faint)">(—)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Group A vs Group C Benchmark View -->
+      <div id="chroma-tab-compare" class="chroma-tabcontent" style="display:none">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+          <label style="font:700 9px var(--fd); color:var(--ink-dim)">BENCHMARK SESSION:</label>
+          <select id="cr-session-sel" class="sel-method" style="width:auto; padding:3px 6px; font-size:9px">
+            <option value="2612">Session 2612 (37 files, 18 A/C)</option>
+            <option value="audio">Session Audio (30 files, 15 A/C)</option>
+          </select>
+        </div>
+
+        <div style="margin-bottom:8px">
+          <div style="display:flex; justify-content:space-between; font:700 8.5px var(--fd); color:var(--ink-dim); margin-bottom:4px">
+            <span>CIRCULAR RELATIVE CHROMA (MEAN PROFILES)</span>
+            <span><b style="color:#3ddc84">■ Group A</b> &nbsp; <b style="color:#ff4d6d">■ Group C</b></span>
+          </div>
+          <div id="cr-comp-bars" style="display:flex; gap:3px; height:58px; background:rgba(6,10,22,.5); border:1px solid var(--line-soft); border-radius:6px; padding:4px 3px; align-items:flex-end">
+          </div>
+          <div style="display:flex; justify-content:space-between; font:600 7px var(--fm); color:var(--ink-faint); margin-top:2px">
+            <span>Pk</span><span>+1</span><span>+2</span><span>+3</span><span>+4</span><span>+5</span><span>+6</span><span>+7</span><span>+8</span><span>+9</span><span>+10</span><span>+11</span>
+          </div>
+        </div>
+
+        <div id="cr-session-stats" style="font:400 8.5px var(--fm); color:var(--ink-dim); line-height:1.5; background:rgba(6,10,22,.4); border:1px solid var(--line-soft); border-radius:6px; padding:6px">
+          Loading benchmark session data…
+        </div>
+      </div>
+
+      <!-- Tab 3: Limits & Physics Findings -->
+      <div id="chroma-tab-audit" class="chroma-tabcontent" style="display:none">
+        <div style="font:400 8.5px var(--fm); color:var(--ink-dim); line-height:1.5">
+          <div style="margin-bottom:6px"><b style="color:var(--cyan)">Empirical Validation Findings (Phase 2B):</b></div>
+          <table style="width:100%; border-collapse:collapse; font-size:8px; margin-bottom:6px">
+            <tr style="border-bottom:1px solid var(--line-soft); color:var(--ink-faint)">
+              <th style="text-align:left; padding:2px">Config</th>
+              <th style="text-align:right; padding:2px">2612</th>
+              <th style="text-align:right; padding:2px">Audio</th>
+              <th style="text-align:right; padding:2px">Cross-Sess</th>
+            </tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+              <td style="padding:2px">Baseline DSP</td>
+              <td style="text-align:right; padding:2px">46.1%</td>
+              <td style="text-align:right; padding:2px">70.0%</td>
+              <td style="text-align:right; padding:2px; color:var(--amber)">50.0%</td>
+            </tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+              <td style="padding:2px">Absolute Chroma</td>
+              <td style="text-align:right; padding:2px">63.0%</td>
+              <td style="text-align:right; padding:2px">75.0%</td>
+              <td style="text-align:right; padding:2px; color:var(--amber)">57.8%</td>
+            </tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+              <td style="padding:2px; color:var(--cyan)">Peak Circular Chroma</td>
+              <td style="text-align:right; padding:2px; color:#3ddc84">72.1%</td>
+              <td style="text-align:right; padding:2px; color:#3ddc84">90.0%</td>
+              <td style="text-align:right; padding:2px; color:var(--amber)">56.5%</td>
+            </tr>
+            <tr>
+              <td style="padding:2px">Modal Ratios</td>
+              <td style="text-align:right; padding:2px">53.9%</td>
+              <td style="text-align:right; padding:2px">25.0%</td>
+              <td style="text-align:right; padding:2px; color:var(--amber)">54.5%</td>
+            </tr>
+          </table>
+          <div style="color:var(--ink-faint); font-size:7.5px; line-height:1.4">
+            <b>Acoustic Physics Summary:</b> Within a single session with fixed mic geometry, peak-aligned circular chroma captures internal damping differences between intact (Group A) and cracked/delaminated (Group C) ceramic plates. However, across sessions, differing microphone distances and impact velocity alter inharmonic plate mode ratios (~640 Hz vs ~1830 Hz vs ~3850 Hz), causing cross-session accuracy to drop to chance level. Chroma must remain an auxiliary inspector.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
 </div>
 
 <!-- ═══════════════ BOTTOM HUD ═══════════════ -->
@@ -780,6 +970,7 @@ const dF=new Float32Array(N_MAX), dSig=new Float32Array(N_MAX),
       dTp=new Float32Array(N_MAX), dE=new Float32Array(N_MAX);
 const dCl=new Uint8Array(N_MAX);                 // 0..3 = A..D, 255 = unclassified
 const dClOrig=new Uint8Array(N_MAX);             // ground-truth snapshot (findings restore)
+const dChroma=new Array(N_MAX).fill(null);       // auxiliary chroma diagnostic objects (Phase 3)
 /* physics state (world coords) */
 const pX=new Float32Array(N_MAX), pY=new Float32Array(N_MAX), pZ=new Float32Array(N_MAX);
 const vXa=new Float32Array(N_MAX), vYa=new Float32Array(N_MAX), vZa=new Float32Array(N_MAX);
@@ -1633,6 +1824,22 @@ function dspLoadCSVText(text,name){
   dspRecomputeAll();
 }
 
+/* ---- spectral features for the generated CSV waveform ---- */
+function dspSpectrumExtras(base,sr,nfft,hop,win,frame){
+  const x=dspReconstruct(base,sr,win), off=frame*hop;
+  const re=new Float64Array(nfft),im=new Float64Array(nfft),w=hann(nfft);
+  for(let i=0;i<nfft;i++){re[i]=(off+i<x.length?x[off+i]:0)*w[i];im[i]=0;}
+  fftRadix2(re,im);
+  let magSum=0,weighted=0,e1k=0,e5k=0;
+  for(let k=1;k<=nfft/2;k++){
+    const f=k*sr/nfft,pow=re[k]*re[k]+im[k]*im[k],mag=Math.sqrt(pow);
+    magSum+=mag;weighted+=f*mag;
+    if(f>=1000)e1k+=pow;
+    if(f>=5000)e5k+=pow;
+  }
+  return {centroid:magSum>0?weighted/magSum:NaN,hfsr:e1k>0?e5k/e1k:NaN};
+}
+
 /* ---- sample CSV generator ---- */
 function dspGenerateSampleCSV(){
   const rows=[]; const spec2={
@@ -1658,13 +1865,26 @@ function dspGenerateSampleCSV(){
   let maxA=0.01;
   base.forEach(b=>maxA=Math.max(maxA,clamp(b.Impact,0.01,1.2)));
   const refMag=maxA*(nfft2/4)*0.9, refMel=refMag*refMag;
-  const out=['File,Group,Impact,Duration,Peak_Time,Mel_Mean_dB,Impact_Freq_Hz'];
+  const out=['File,Group,Impact,Duration,Peak_Time,Mel_Mean_dB,Impact_Freq_Hz,Laplace_Sigma_Fit,FFT_Centroid_Hz,HFSR'];
   base.forEach(b=>{
     const raw=measureEvent(b,sr,nfft2,hop2,topdb2,win2);
     raw._topdb=topdb2;
     raw._freq=dspFreqAtFrame(b,sr,nfft2,hop2,win2,topdb2,raw._peakFrame,raw._peakBin);
     const e=extractFromRaw(b,raw,refMel,refMag);
-    out.push([b.File,b.Group,e.impact.toFixed(4),e.duration.toFixed(4),e.peak_time.toFixed(4),e.mel_mean_db.toFixed(2),e.impact_freq_hz.toFixed(1)].join(','));
+    // Fit ln(RMS envelope) against elapsed time after the peak; sigma = -slope.
+    // This is a fitted feature from the generated waveform, not a hand-set group label.
+    const env=raw._rmsEnv, peak=raw._rmsPkF, floor=raw._rmsPk*Math.pow(10,-topdb2/20);
+    let sx=0,sy=0,sxx=0,sxy=0,nfit=0;
+    for(let j=peak;j<env.length;j++){
+      if(!(env[j]>0)||env[j]<floor)continue;
+      const t=(j-peak)*raw._rmsH/sr, y=Math.log(env[j]);
+      sx+=t;sy+=y;sxx+=t*t;sxy+=t*y;nfit++;
+    }
+    const den=nfit*sxx-sx*sx;
+    const slope=nfit>=3&&Math.abs(den)>1e-12?(nfit*sxy-sx*sy)/den:NaN;
+    const sigma=Number.isFinite(slope)?clamp(-slope,0.1,10000):1/Math.max(e.duration,0.02);
+    const spectral=dspSpectrumExtras(b,sr,nfft2,hop2,win2,raw._peakFrame);
+    out.push([b.File,b.Group,e.impact.toFixed(4),e.duration.toFixed(4),e.peak_time.toFixed(4),e.mel_mean_db.toFixed(2),e.impact_freq_hz.toFixed(1),sigma.toFixed(4),spectral.centroid.toFixed(1),spectral.hfsr.toFixed(6)].join(','));
   });
   return out.join('\n');
 }
@@ -1886,6 +2106,17 @@ function initDspFileActions(){
     });
   }
   
+  const btTemplate = $('dsp-bt-templatecsv');
+  if(btTemplate){
+    btTemplate.addEventListener('click', ()=>{
+      const headers='File,Group,Impact,Duration,Peak_Time,Mel_Mean_dB,Impact_Freq_Hz,Laplace_Sigma_Fit,FFT_Centroid_Hz,HFSR,Autocorr_Peak\n';
+      const blob=new Blob([headers],{type:'text/csv;charset=utf-8'});
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='dsp_arena_template.csv';a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+      dspToast('CSV template downloaded — fill rows and use Group A/B/C/D');
+    });
+  }
+
   const btSample = $('dsp-bt-samplecsv');
   if(btSample){
     btSample.addEventListener('click', ()=>{
@@ -1899,14 +2130,19 @@ function initDspFileActions(){
   if(btExport){
     btExport.addEventListener('click', ()=>{
       if(!dspState.rows.length){ dspToast('⚠ No data to export', 'gold'); return; }
-      const csv = ['File,Group,Impact,Duration,Peak_Time,Mel_Mean_dB,Impact_Freq_Hz'];
-      dspState.rows.forEach(r => csv.push([
+      const methodCols=[
+        ['sigma','Laplace_Sigma_Fit'],['centroid','FFT_Centroid_Hz'],
+        ['hfsr','HFSR'],['autocorr','Autocorr_Peak']
+      ];
+      const csv = ['File,Group,Impact,Duration,Peak_Time,Mel_Mean_dB,Impact_Freq_Hz,'+methodCols.map(c=>c[1]).join(',')];
+      dspState.rows.forEach((r,i) => csv.push([
         r.File, r.Group,
         (Number.isFinite(r.impact)?r.impact:0).toFixed(6),
         (Number.isFinite(r.duration)?r.duration:0).toFixed(6),
         (Number.isFinite(r.peak_time)?r.peak_time:0).toFixed(6),
         (Number.isFinite(r.mel_mean_db)?r.mel_mean_db:0).toFixed(2),
-        (Number.isFinite(r.impact_freq_hz)?r.impact_freq_hz:0).toFixed(1)
+        (Number.isFinite(r.impact_freq_hz)?r.impact_freq_hz:0).toFixed(1),
+        ...methodCols.map(c=>FEAT[c[0]]&&Number.isFinite(FEAT[c[0]][i])?FEAT[c[0]][i].toFixed(6):'')
       ].join(',')));
       const blob = new Blob([csv.join('\n')], {type:'text/csv'});
       const a = document.createElement('a');
@@ -2741,7 +2977,9 @@ function updateInspector(){
     $('if-id').textContent='—'; $('if-cl').textContent='·'; $('if-band').textContent='·';
     const st=$('if-state'); st.textContent='NO TARGET'; st.className='itag stO';
     for(const id of ['if-f','if-w','if-sg','if-ta','if-q','if-tp','if-e','if-ew','if-gt'])$(id).textContent='—';
-    selChip=''; drawWave(-1); return;
+    selChip=''; drawWave(-1);
+    if(typeof updateChromaUI==='function') updateChromaUI(null, 'NO TARGET');
+    return;
   }
   lastShown=sel;
   const f=dF[sel], sg=dSig[sel], tp=dTp[sel], E=dE[sel];
@@ -2765,6 +3003,7 @@ function updateInspector(){
   $('if-gt').textContent=dCl[sel]<4?'ground truth '+CLAB[dCl[sel]]:'unlabeled';
   selChip=fmtHz(f)+' · '+tp.toFixed(0)+'ms · σ'+sg.toFixed(0);
   drawWave(sel);
+  if(typeof updateChromaUI==='function') updateChromaUI(dChroma[sel], 'EVT #'+String(sel).padStart(3,'0'));
 }
 
 /* ════════════════════════ 12 · frame loop ════════════════════════ */
@@ -3029,7 +3268,7 @@ if(btShowHideAnalysis && panelAnalysis){
 /* ════════════════════════ 14 · LIVE LINK — WebSocket ingest ════════════════════════ */
 /* Green chip = open socket · amber = SIM fallback (synthetic ensemble stays usable).
    The first real event clears the synthetic set and switches to a live ring buffer. */
-const WSS={sock:null,live:false,liveMode:false,urlIdx:0,rot:0,evCount:0,badCount:0,otherCount:0,timer:0,eMax:0.12};
+const WSS={sock:null,live:false,liveMode:false,urlIdx:0,rot:0,evCount:0,badCount:0,otherCount:0,timer:0,eMax:0.12,connectedAt:0,lastHeartbeat:0,connectError:null};
 let WS_URLS=[];
 let wrapHead=0, chipT=0;
 
@@ -3066,7 +3305,7 @@ function hueOf(f){
   return BANDS[2][0]+(BANDS[2][1]-BANDS[2][0])*clamp01(Math.log(f/s2V)/Math.log(Math.max(hi/s2V,1.06)));
 }
 
-function spawnEvent(f,sg,tp,E,cl,fromWS){
+function spawnEvent(f,sg,tp,E,cl,fromWS,chromaData){
   if(fromWS&&!WSS.liveMode){                    /* first real event → live feed takes over */
     WSS.liveMode=true; N=0; wrapHead=0; lockedId=-1; hoverId=-1; lastShown=-2; inspDirty=true;
     $('dn-seg').classList.add('is-locked'); $('bt-regen').classList.add('is-locked');
@@ -3075,6 +3314,7 @@ function spawnEvent(f,sg,tp,E,cl,fromWS){
   const i=(N<N_MAX)?N:(wrapHead++)%N_MAX;      /* ring buffer once at capacity */
   if(N<N_MAX)N++;
   dF[i]=f; dSig[i]=sg; dTp[i]=tp; dE[i]=E; dCl[i]=cl; dClOrig[i]=cl;
+  dChroma[i]=chromaData||null;
   pX[i]=wxOf(f); pY[i]=wyOf(tp); pZ[i]=wzOf(sg);
   vXa[i]=0; vYa[i]=0; vZa[i]=(rnd()-0.5)*0.4;
   cHue[i]=hueOf(f); cAlp[i]=0; cSize[i]=0; cGlow[i]=0; cMix[i]=0;
@@ -3107,8 +3347,10 @@ function ingestMessage(m){
   if(Eraw!==null){const a=Math.abs(Eraw); WSS.eMax=Math.max(a,WSS.eMax*0.995); E=clamp(a/WSS.eMax,0.06,1)}
   let cl=255; const cv=p.cluster??p.class??p.group??p.label??p.name;
   if(cv!=null){const ck=String(cv).trim().charAt(0).toUpperCase(); if(ck in CLKEY)cl=CLKEY[ck]}
+  const chData = p.auxiliary_chroma || m.auxiliary_chroma || null;
   WSS.evCount++;
-  spawnEvent(f,sg,clamp(tp,2,T_WIN-2),E,cl,true);
+  spawnEvent(f,sg,clamp(tp,2,T_WIN-2),E,cl,true,chData);
+  if(chData&&typeof updateChromaUI==='function') updateChromaUI(chData, 'LIVE EVT #'+String(WSS.evCount).padStart(3,'0'));
   if(WSS.live)wsChip('live','LIVE · '+WSS.evCount+' ev');
 }
 
@@ -3117,15 +3359,19 @@ function wsConnect(){
   clearTimeout(WSS.timer);
   const url=WS_URLS[WSS.urlIdx%WS_URLS.length];
   wsChip('conn','LINKING '+url.replace(/^wss?:\/\//,''));
-  let s;
-  try{s=new WebSocket(url)}catch(e){wsRetry();return}
-  WSS.sock=s;
+  let s, m;  // m is reused in message parsing
+  try{s=new WebSocket(url)}catch(e){WSS.connectError=e.message; wsRetry();return}
+  WSS.sock=s; WSS.connectError=null;
   const to=setTimeout(()=>{if(!WSS.live){try{s.close()}catch(e){}}},4000);
-  s.onopen=()=>{clearTimeout(to); WSS.live=true; WSS.rot=0;
+  s.onopen=()=>{clearTimeout(to); WSS.live=true; WSS.connectedAt=Date.now(); WSS.lastHeartbeat=Date.now(); WSS.rot=0;
     wsChip('live','LIVE · '+url.split('/').slice(3).join('/')+(WSS.evCount?' · '+WSS.evCount+' ev':''))};
-  s.onmessage=ev=>{let m; try{m=JSON.parse(ev.data)}catch(e){WSS.badCount++;return} ingestMessage(m)};
-  s.onerror=()=>{};
-  s.onclose=()=>{clearTimeout(to); WSS.live=false; WSS.sock=null; wsRetry()};
+  s.onmessage=ev=>{
+    try{m=JSON.parse(ev.data)}catch(e){WSS.badCount++;return}
+    if(m.type==='heartbeat_ack'||m.type==='heartbeat'){WSS.lastHeartbeat=Date.now()}
+    ingestMessage(m)
+  };
+  s.onerror=(ev)=>{WSS.connectError=ev.message||'Connection error'}
+  s.onclose=(e)=>{clearTimeout(to); WSS.live=false; WSS.sock=null; wsRetry()};
 }
 function wsRetry(){
   WSS.urlIdx++; WSS.rot++;
@@ -3148,7 +3394,10 @@ $('bt-inject').addEventListener('click',()=>{
   }
 });
 window.__ws=()=>({live:WSS.live,liveMode:WSS.liveMode,url:WS_URLS.length?WS_URLS[WSS.urlIdx%WS_URLS.length]:null,
-  evCount:WSS.evCount,badCount:WSS.badCount,otherCount:WSS.otherCount,N:N});
+  evCount:WSS.evCount,badCount:WSS.badCount,otherCount:WSS.otherCount,N:N,
+  connectedAt:WSS.connectedAt,lastHeartbeat:WSS.lastHeartbeat,connectError:WSS.connectError});
+// Client-side heartbeat (30s interval, matching server)
+setInterval(()=>{if(WSS.live&&WSS.sock){try{WSS.sock.send(JSON.stringify({type:'heartbeat',server_time:Date.now()}))}catch(e){}}},30000);
 
 /* ════════════════════════ 16 · dataset I/O + scientific findings ════════════════════════ */
 /* Finding box: one preallocated slot; bounds kept in DATA units so the dashed
@@ -3234,30 +3483,49 @@ $('bt-find-clear').addEventListener('click',clearFinding);
    the file's real numbers independent of how dF/dSig get rescaled below. */
 const FEAT_LABELS={peak:'FFT Peak (Hz)',centroid:'FFT Centroid (Hz)',hfsr:'FFT HFSR (ratio)',sigma:'Laplace σ (s⁻¹)',autocorr:'Autocorr Peak'};
 let FEAT={peak:null,centroid:null,hfsr:null,sigma:null,autocorr:null}, FEAT_N=0;
+function clearMethodCSV(message){
+  FEAT={peak:null,centroid:null,hfsr:null,sigma:null,autocorr:null}; FEAT_N=0; N=0;
+  const chip=$('seed-chip'),hint=$('method-hint'),box=$('method-table');
+  if(chip)chip.textContent=message;
+  if(hint)hint.textContent=message;
+  if(box)box.innerHTML='';
+  const x=$('sel-xaxis'),z=$('sel-zaxis');
+  if(x)x.disabled=true;if(z)z.disabled=true;
+  if(typeof datasetChips==='function')datasetChips();
+  sepDirty=true;spDirty=true;inspDirty=true;
+}
 function loadCSV(text,fname){
-  const lines=text.split(/\r?\n/).filter(l=>l.trim().length);
-  if(lines.length<2){$('seed-chip').textContent='CSV EMPTY';return 0}
-  const delim=(lines[0].includes(';')&&!lines[0].includes(','))?';':',';
-  const head=lines[0].split(delim).map(h=>h.trim().toLowerCase().replace(/^"|"$/g,''));
+  const parsed=dspParseCSV(String(text||''));
+  if(!parsed||!parsed.header||!parsed.data.length){clearMethodCSV('CSV EMPTY — add a header row and at least one data row');return 0}
+  const head=parsed.header.map(h=>String(h).trim().toLowerCase().replace(/^\uFEFF/,'').replace(/[\s-]+/g,'_'));
   const col=(...names)=>{for(const nm of names){const ix=head.indexOf(nm);if(ix>=0)return ix}return -1};
-  const iF=col('impact_freq_hz','frequency','freq_hz','peak_frequency','peak_freq_hz','f0','freq','method1_fft_peak_hz');
+  const iF=col('impact_freq_hz','frequency','freq_hz','peak_frequency','peak_freq_hz','f0','freq','method1_fft_peak_hz','fft_peak_hz');
   const iS=col('laplace_sigma_fit','laplace_peak_sigma','laplace_sigma','sigma','decay_rate','damping','method2_laplace_sigma');
   const iT=col('peak_time','peak_time_ms','peak_time_s','tp','t_peak','duration_ms','duration');
   const iE=col('impact','energy','rms','amplitude','impact_amp','e_rms');
-  const iG=col('group','assigned_group','true_group','cluster','label','name','user_confirmed_ground_truth');
+  const iG=col('group','assigned_group','true_group','cluster','label','name','user_confirmed_ground_truth','class','type');
   const iC=col('fft_centroid_hz','centroid_hz','spectral_centroid','centroid','method1_fft_centroid_hz');
   const iH=col('hfsr','fft_hfsr','method1_fft_hfsr');
   const iA=col('autocorr_peak','autocorrelation','autocorr','method3_autocorr_peak');
-  if(iF<0||iS<0){$('seed-chip').textContent='CSV: need freq+σ';return 0}
-  const rf=[],rs=[],rt=[],re=[],rg=[],rc=[],rh=[],ra=[];
-  let maxS=0,maxE=0;
-  for(let li=1;li<lines.length&&rf.length<N_MAX;li++){
-    const c=lines[li].split(delim);
-    const f=parseFloat(c[iF]), s=Math.abs(parseFloat(c[iS]));
-    if(!isFinite(f)||f<=0||!isFinite(s))continue;
+  const NOTE_COLS=['c','csharp','d','dsharp','e','f','fsharp','g','gsharp','a','asharp','b'];
+  const iChromaAbs=NOTE_COLS.map(nm=>col('chroma_'+nm));
+  const iChromaCirc=Array.from({length:12},(_,k)=>col('chroma_circ_bin_'+k));
+  const iDomNote=col('chroma_dominant_note','dominant_note');
+  const iPurity=col('chroma_purity','purity');
+  const iAttNote=col('chroma_dominant_note_attack','dominant_note_attack');
+  const iRingNote=col('chroma_dominant_note_ringdown','dominant_note_ringdown');
+  const iWinMs=col('chroma_analysis_window_ms','analysis_window_ms');
+  if(iF<0||iS<0){clearMethodCSV('CSV needs Impact_Freq_Hz + Laplace_Sigma_Fit columns — feature analysis cleared');return 0}
+  const rf=[],rs=[],rt=[],re=[],rg=[],rc=[],rh=[],ra=[],rChroma=[];
+  let maxS=0,maxE=0,skipped=0;
+  for(let li=0;li<parsed.data.length;li++){
+    const c=parsed.data[li];
+    const f=parseFloat(c[iF]), s=parseFloat(c[iS]);
+    if(!Number.isFinite(f)||f<=0||!Number.isFinite(s)||s<0){skipped++;continue}
+    if(rf.length>=N_MAX){skipped+=parsed.data.length-li;break}
     let g=255;
-    if(iG>=0){const k=String(c[iG]||'').trim().charAt(0).toUpperCase();
-      if(k==='A')g=0;else if(k==='B')g=1;else if(k==='C')g=2;else if(k==='D')g=3}
+    if(iG>=0){const label=String(c[iG]||'').trim().toUpperCase().replace(/^GROUP\s*/,'');
+      if(label==='A'||label==='1')g=0;else if(label==='B'||label==='2')g=1;else if(label==='C'||label==='3')g=2;else if(label==='D'||label==='4')g=3}
     rf.push(f);rs.push(s);
     rt.push(iT>=0?parseFloat(c[iT]):NaN);
     re.push(iE>=0?parseFloat(c[iE]):NaN);
@@ -3265,11 +3533,27 @@ function loadCSV(text,fname){
     rc.push(iC>=0?parseFloat(c[iC]):NaN);
     rh.push(iH>=0?parseFloat(c[iH]):NaN);
     ra.push(iA>=0?parseFloat(c[iA]):NaN);
+    if(iChromaAbs[0]>=0){
+      const absV=iChromaAbs.map(ix=>ix>=0?(parseFloat(c[ix])||0):0);
+      const circV=iChromaCirc.map(ix=>ix>=0?(parseFloat(c[ix])||0):0);
+      rChroma.push({
+        status:'ok',
+        chroma_12:absV,
+        chroma_circular_12:circV,
+        dominant_note:iDomNote>=0?c[iDomNote]:'—',
+        purity:iPurity>=0?(parseFloat(c[iPurity])||0):0,
+        dominant_note_attack:iAttNote>=0?c[iAttNote]:null,
+        dominant_note_ringdown:iRingNote>=0?c[iRingNote]:null,
+        analysis_window_ms:iWinMs>=0?(parseFloat(c[iWinMs])||50.0):50.0,
+      });
+    }else{
+      rChroma.push(null);
+    }
     if(s>maxS)maxS=s;
-    const ea=Math.abs(re[re.length-1]); if(isFinite(ea)&&ea>maxE)maxE=ea;
+    const ea=Math.abs(re[re.length-1]); if(Number.isFinite(ea)&&ea>maxE)maxE=ea;
   }
   const n=rf.length;
-  if(!n){$('seed-chip').textContent='CSV: 0 rows';return 0}
+  if(!n){clearMethodCSV('CSV: no valid rows; check numeric frequency (>0) and sigma (≥0) values');return 0}
   const sScale=(maxS>0&&maxS<SIG_MAX*0.05)?(SIG_MAX*0.75)/maxS:1;
   const eScale=maxE>0?1/maxE:1;
   N=n; wrapHead=0; lockedId=-1; hoverId=-1; lastShown=-2; FBOX.on=false; findingButtons(null);
@@ -3277,25 +3561,32 @@ function loadCSV(text,fname){
     dF[i]=clamp(rf[i],F_LO*1.02,190000);
     dSig[i]=clamp(rs[i]*sScale,1.2,SIG_MAX-0.5);
     let t=rt[i];
-    if(!isFinite(t))t=(i*97)%T_WIN; else if(t<5)t*=1000;
+    if(!Number.isFinite(t))t=(i*97)%T_WIN; else if(t<5)t*=1000;
     dTp[i]=clamp(t,2,T_WIN-2);
-    dE[i]=isFinite(re[i])?clamp(Math.abs(re[i])*eScale,0.06,1):0.5;
+    dE[i]=Number.isFinite(re[i])?clamp(Math.abs(re[i])*eScale,0.06,1):0.5;
     dCl[i]=rg[i];
+    dChroma[i]=rChroma[i]||null;
     pX[i]=(rnd()-0.5)*0.25; pY[i]=(rnd()-0.5)*0.25; pZ[i]=(rnd()-0.5)*0.25;
     vXa[i]=0;vYa[i]=0;vZa[i]=0;
     cAlp[i]=0;cSize[i]=0;cGlow[i]=0;cHue[i]=250;cMix[i]=0;
   }
+  for(let i=n;i<N_MAX;i++) dChroma[i]=null;
+  if(rChroma[0]&&typeof updateChromaUI==='function') updateChromaUI(rChroma[0], 'ROW #000');
   dClOrig.set(dCl);
   for(let i=0;i<N_MAX;i++)orderA[i]=i;
   $('seed-chip').textContent=fname.length>14?fname.slice(0,12)+'…':fname;
-  /* stash raw (unclamped) per-method values for the axis switcher + separability panel */
   FEAT={peak:Float32Array.from(rf),sigma:Float32Array.from(rs),
         centroid:Float32Array.from(rc),hfsr:Float32Array.from(rh),autocorr:Float32Array.from(ra)};
   FEAT_N=n;
-  const haveGroups=dCl.slice(0,n).some(g=>g<4);
+  const groupCounts=[0,0,0,0];rg.forEach(g=>{if(g<4)groupCounts[g]++});
+  const haveGroups=groupCounts.filter(c=>c>0).length>=2;
   $('sel-xaxis').disabled=false; $('sel-zaxis').disabled=false;
-  $('method-hint').textContent=haveGroups?'':'⚠ no Group column detected — separability scores need labeled data';
-  applyAxisSelection(false);   // false = don't touch dF/dSig, defaults already match FFT Peak / Laplace σ
+  const notes=[n+' valid rows · '+['A','B','C','D'].map((g,i)=>g+':'+groupCounts[i]).join(' ')];
+  if(!haveGroups)notes.push('⚠ add Group labels A/B/C/D for separation scores');
+  if(skipped)notes.push(skipped+' row(s) skipped (invalid values or row limit '+N_MAX+')');
+  if(iC<0)notes.push('Centroid: no data');if(iH<0)notes.push('HFSR: no data');if(iA<0)notes.push('Autocorr: no data');
+  $('method-hint').textContent=notes.join(' · ');
+  applyAxisSelection(false);
   computeMethodCompare();
   datasetChips(); sepDirty=true; spDirty=true; inspDirty=true;
   return n;
@@ -3345,9 +3636,12 @@ function applyAxisSelection(recompute){
 }
 function anovaFRatio(vals,cls,n){
   const groups=[[],[],[],[]];
-  for(let i=0;i<n;i++){if(cls[i]<4&&isFinite(vals[i]))groups[cls[i]].push(vals[i])}
+  let validN=0;
+  for(let i=0;i<n;i++){
+    if(cls[i]<4&&isFinite(vals[i])){groups[cls[i]].push(vals[i]);validN++}
+  }
   const cnt=groups.map(g=>g.length);
-  if(cnt.filter(c=>c>1).length<2) return {f:0,pair:null,d:0};
+  if(cnt.filter(c=>c>1).length<2) return {f:0,pair:null,d:0,validN,counts:cnt,scorable:false};
   const means=groups.map(g=>g.length?g.reduce((a,b)=>a+b,0)/g.length:NaN);
   const all=[].concat(...groups);
   const grand=all.reduce((a,b)=>a+b,0)/all.length;
@@ -3361,16 +3655,19 @@ function anovaFRatio(vals,cls,n){
     ssW+=ss; dfW+=groups[c].length-1;
   }
   dfB=Math.max(1,dfB-1); dfW=Math.max(1,dfW);
-  const f=ssW>0?(ssB/dfB)/(ssW/dfW):0;
+  // Zero within-group variance with separated means is an infinite F-ratio, not zero.
+  const f=ssW>0?(ssB/dfB)/(ssW/dfW):(ssB>0?Infinity:0);
   let minD=Infinity,pair=null; const nm=['A','B','C','D'];
   for(let i=0;i<4;i++)for(let j=i+1;j<4;j++){
-    if(!groups[i].length||!groups[j].length)continue;
-    const pooled=Math.sqrt((stds[i]**2+stds[j]**2)/2)||1e-9;
-    const d=Math.abs(means[i]-means[j])/pooled;
-    if(d<minD){minD=d;pair=nm[i]+' ↔ '+nm[j]}
+    if(groups[i].length<2||groups[j].length<2)continue;
+    const pooled=Math.sqrt((stds[i]**2+stds[j]**2)/2);
+    const delta=Math.abs(means[i]-means[j]);
+    const d=pooled>1e-12?delta/pooled:(delta>1e-12?Infinity:0);
+    if(pair===null||d<minD){minD=d;pair=nm[i]+' ↔ '+nm[j]}
   }
-  return {f,pair,d:isFinite(minD)?minD:0};
+  return {f,pair,d:pair?minD:0,validN,counts:cnt,scorable:true};
 }
+function formatFRatio(v){return !Number.isFinite(v)?'∞':Math.abs(v)>=1e5?v.toExponential(2):v.toFixed(1)}
 function computeMethodCompare(){
   const box=$('method-table'); if(!box||!FEAT_N) return;
   const keys=['peak','centroid','hfsr','sigma','autocorr'];
@@ -3380,14 +3677,19 @@ function computeMethodCompare(){
     const r=anovaFRatio(arr,dCl,FEAT_N); r.k=k; r.ok=true; return r;
   }).filter(r=>r.ok);
   if(!rows.length){box.innerHTML='';return}
-  const maxF=Math.max(1e-6,...rows.map(r=>r.f));
-  rows.sort((a,b)=>b.f-a.f);
+  const scorableRows=rows.filter(r=>r.scorable);
+  const hasInfiniteF=scorableRows.some(r=>r.f===Infinity);
+  const maxF=Math.max(1e-6,...scorableRows.filter(r=>Number.isFinite(r.f)).map(r=>r.f));
+  rows.sort((a,b)=>(Number(b.scorable)-Number(a.scorable))||b.f-a.f);
   box.innerHTML=rows.map((r,idx)=>{
-    const pct=(100*r.f/maxF).toFixed(0);
-    const pairTxt=r.pair?('hardest '+r.pair):'—';
-    return '<div class="mrow'+(idx===0?' best':'')+'"><span class="mn">'+FEAT_LABELS[r.k]+
-      '</span><span class="mbar"><i style="width:'+pct+'%"></i></span><span class="mv">'+r.f.toFixed(1)+
-      '</span><span class="mp">'+pairTxt+'</span></div>';
+    const pct=!r.scorable?'0':r.f===Infinity?'100':hasInfiniteF?'0':(100*r.f/maxF).toFixed(0);
+    const dTxt=Number.isFinite(r.d)?r.d.toFixed(2):'∞';
+    const pairTxt=!r.validN?'no data':!r.scorable?'insufficient':r.pair?('hardest '+r.pair+' (d='+dTxt+')'):'—';
+    const coverage=r.validN+'/'+FEAT_N;
+    const groupCounts=['A','B','C','D'].map((g,i)=>g+':'+r.counts[i]).join(' · ');
+    return '<div class="mrow'+(idx===0&&r.scorable?' best':'')+(!r.scorable?' missing':'')+'" title="Valid samples '+coverage+'; '+groupCounts+'">'+
+      '<span class="mn">'+FEAT_LABELS[r.k]+'</span><span class="mbar"><i style="width:'+pct+'%"></i></span>'+
+      '<span class="mv">'+(r.scorable?formatFRatio(r.f):'—')+'</span><span class="mp">'+pairTxt+'</span></div>';
   }).join('');
 }
 $('sel-xaxis').addEventListener('change',()=>applyAxisSelection(true));
@@ -3440,6 +3742,262 @@ if(!CanvasRenderingContext2D.prototype.roundRect){
 buildSprites();
 resize();
 initRangeEditors();
+/* ---- Secure Multi-provider AI integration ---- */
+const DSP_AI_MODELS={
+  deepseek:['deepseek-chat','deepseek-reasoner'],
+  openai:['gpt-4.1-mini','gpt-4.1','o4-mini'],
+  claude:['claude-sonnet-4-5','claude-3-7-sonnet-latest','claude-3-5-haiku-latest'],
+  gemini:['gemini-2.5-flash','gemini-2.5-pro','gemini-2.0-flash']
+};
+let dspAIStatus=null;
+function dspAISetStatus(msg,kind){
+  const el=$('dsp-ai-status');if(!el)return;
+  el.textContent=msg;el.style.color=kind==='error'?'var(--red)':kind==='ok'?'var(--green)':'var(--ink-dim)';
+}
+function dspAIUpdateModels(){
+  const provider=$('dsp-ai-provider')?.value||'deepseek';
+  const sel=$('dsp-ai-model');if(!sel)return;
+  const models=(dspAIStatus?.providers?.find(p=>p.id===provider)?.models)||DSP_AI_MODELS[provider]||[];
+  const prev=sel.value;sel.replaceChildren();
+  models.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;sel.appendChild(o)});
+  if(models.includes(prev))sel.value=prev;
+}
+async function dspAIRefreshStatus(){
+  const run=$('dsp-ai-run');if(run)run.disabled=true;
+  try{
+    const res=await fetch('/api/dsp-ai/status',{headers:{'Accept':'application/json'}});
+    if(!res.ok)throw new Error(res.status===404?'AI API not found. Open DSP Arena through the local server at /arena.':'AI status request failed (HTTP '+res.status+').');
+    dspAIStatus=await res.json();dspAIUpdateModels();
+    const configured=dspAIStatus.providers.filter(p=>p.configured);
+    dspAISetStatus(configured.length?'Connected: '+configured.map(p=>p.label+(p.auth_mode?' ('+p.auth_mode+')':'')).join(', ')+'.':'No AI provider connected. Gemini supports Google login through Gemini CLI; other providers need server-side API keys.',configured.length?'ok':'');
+  }catch(e){dspAISetStatus(e.message+' API keys are not stored in the browser.','error')}
+  finally{if(run)run.disabled=false;}
+}
+function dspAICurrentRows(){
+  if(!Number.isFinite(N)||N<1)throw new Error('Load a CSV or generate a sample first.');
+  const fields={impact_freq_hz:FEAT?.peak,laplace_sigma_fit:FEAT?.sigma,fft_centroid_hz:FEAT?.centroid,hfsr:FEAT?.hfsr,autocorr_peak:FEAT?.autocorr};
+  const rows=[];
+  for(let i=0;i<N&&i<200;i++){
+    const row={group:({0:'A',1:'B',2:'C',3:'D'})[dCl[i]]||''};
+    for(const [name,arr] of Object.entries(fields)){
+      const v=arr&&Number(arr[i]);if(Number.isFinite(v))row[name]=v;
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+async function dspAIRun(){
+  const btn=$('dsp-ai-run'),out=$('dsp-ai-result');if(!btn||btn.disabled)return;
+  btn.disabled=true;btn.textContent='Running…';out.style.display='block';out.textContent='Preparing DSP feature summary…';
+  try{
+    const rows=dspAICurrentRows();
+    const payload={provider:$('dsp-ai-provider').value,model:$('dsp-ai-model').value,task:$('dsp-ai-task').value,dataset_name:$('seed-chip')?.textContent||'DSP Arena dataset',rows};
+    dspAISetStatus('Sending '+rows.length+' feature rows to '+payload.provider+' at your request…');
+    const res=await fetch('/api/dsp-ai/run',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(payload)});
+    const data=await res.json().catch(()=>({detail:'Server returned invalid JSON.'}));
+    if(!res.ok||data.status==='error')throw new Error(data.detail||('AI request failed (HTTP '+res.status+').'));
+    const result=typeof data.result==='string'?data.result:JSON.stringify(data.result,null,2);
+    out.textContent='Provider: '+data.provider+' · Model: '+data.model+' · Task: '+data.task+'\nRows in dataset summary: '+(data.summary?.row_count??data.rows_sent)+'\n\n'+result+(data.format_warning?'\n\n⚠ Model response was not valid classification JSON; treat as text only.':'');
+    dspAISetStatus('AI request completed. Output is model-generated and must be validated against DSP measurements.', 'ok');
+  }catch(e){out.textContent='';out.style.display='none';dspAISetStatus(e.message||'AI request failed.','error')}
+  finally{btn.disabled=false;btn.textContent='▶ Run AI';}
+}
+function initDspAI(){
+  $('dsp-ai-provider')?.addEventListener('change',dspAIUpdateModels);
+  $('dsp-ai-run')?.addEventListener('click',dspAIRun);
+  dspAIUpdateModels();dspAIRefreshStatus();
+}
+
+/* ════════════════════════ 17 · AUXILIARY CHROMA DIAGNOSTIC (Phase 3) ════════════════════════ */
+const CHROMA_NOTE_NAMES_UI = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+let _chromaSessionData = null;
+let _lastActiveChroma = null;
+
+function renderChromaBarSet(containerId, values, isCircular, highlightIdx){
+  const el = $(containerId);
+  if(!el) return;
+  el.innerHTML = '';
+  const vals = (Array.isArray(values) && values.length === 12) ? values : new Array(12).fill(0);
+  const maxV = Math.max(...vals, 1e-6);
+
+  vals.forEach((v, i) => {
+    const bar = document.createElement('div');
+    bar.style.flex = '1';
+    bar.style.display = 'flex';
+    bar.style.flexDirection = 'column';
+    bar.style.justifyContent = 'flex-end';
+    bar.style.height = '100%';
+    bar.style.background = 'rgba(255,255,255,.02)';
+    bar.style.borderRadius = '2px';
+    bar.style.overflow = 'hidden';
+    bar.title = (isCircular ? ('Bin ' + i + (i === 0 ? ' (Peak)' : ' (+' + i + 'st)')) : CHROMA_NOTE_NAMES_UI[i]) + ': ' + (v * 100).toFixed(1) + '%';
+
+    const fill = document.createElement('div');
+    const pct = Math.max(0, Math.min(100, Math.round((v / maxV) * 100)));
+    fill.style.height = pct + '%';
+    fill.style.width = '100%';
+    fill.style.borderRadius = '2px 2px 0 0';
+    fill.style.transition = 'height .2s cubic-bezier(.3,1,.4,1), background .2s';
+
+    if (isCircular) {
+      if (i === 0) {
+        fill.style.background = 'linear-gradient(180deg, #ffe28a, #fbbf24)';
+        fill.style.boxShadow = '0 0 6px rgba(251,191,36,.6)';
+      } else {
+        fill.style.background = 'linear-gradient(180deg, rgba(251,191,36,.8), rgba(251,191,36,.3))';
+      }
+    } else {
+      if (i === highlightIdx) {
+        fill.style.background = 'linear-gradient(180deg, #5eead4, #3ae3ff)';
+        fill.style.boxShadow = '0 0 6px rgba(58,227,255,.6)';
+      } else {
+        fill.style.background = 'linear-gradient(180deg, rgba(58,227,255,.8), rgba(167,139,250,.4))';
+      }
+    }
+    bar.appendChild(fill);
+    el.appendChild(bar);
+  });
+}
+
+function renderChromaCompareBars(containerId, aVals, cVals){
+  const el = $(containerId);
+  if(!el) return;
+  el.innerHTML = '';
+  const a = (Array.isArray(aVals) && aVals.length === 12) ? aVals : new Array(12).fill(0);
+  const c = (Array.isArray(cVals) && cVals.length === 12) ? cVals : new Array(12).fill(0);
+  const maxV = Math.max(...a, ...c, 1e-6);
+
+  for (let i = 0; i < 12; i++) {
+    const pair = document.createElement('div');
+    pair.style.flex = '1';
+    pair.style.display = 'flex';
+    pair.style.gap = '1px';
+    pair.style.alignItems = 'flex-end';
+    pair.style.height = '100%';
+    pair.style.background = 'rgba(255,255,255,.02)';
+    pair.style.borderRadius = '2px';
+    pair.style.padding = '0 1px';
+    pair.title = 'Bin ' + i + ' — Group A: ' + (a[i]*100).toFixed(1) + '% | Group C: ' + (c[i]*100).toFixed(1) + '%';
+
+    const bA = document.createElement('div');
+    bA.style.flex = '1';
+    bA.style.height = Math.round((a[i] / maxV) * 100) + '%';
+    bA.style.background = '#3ddc84';
+    bA.style.borderRadius = '1px 1px 0 0';
+
+    const bC = document.createElement('div');
+    bC.style.flex = '1';
+    bC.style.height = Math.round((c[i] / maxV) * 100) + '%';
+    bC.style.background = '#ff4d6d';
+    bC.style.borderRadius = '1px 1px 0 0';
+
+    pair.appendChild(bA);
+    pair.appendChild(bC);
+    el.appendChild(pair);
+  }
+}
+
+function updateChromaUI(ch, label){
+  _lastActiveChroma = ch;
+  const domEl = $('cr-dom'), purEl = $('cr-purity'), stEl = $('cr-status');
+  const winEl = $('cr-win-dur'), attN = $('cr-att-note'), attP = $('cr-att-pur');
+  const ringN = $('cr-ring-note'), ringP = $('cr-ring-pur');
+
+  if (!ch || ch.status === 'silent' || ch.status === 'error' || ch.status === 'too_short') {
+    if (domEl) domEl.textContent = '—';
+    if (purEl) purEl.textContent = '—';
+    if (stEl) {
+      stEl.textContent = ch && ch.status ? ch.status.toUpperCase() : (label || 'NO TARGET');
+      stEl.style.color = 'var(--ink-faint)';
+    }
+    if (winEl) winEl.textContent = '— ms';
+    if (attN) attN.textContent = '—';
+    if (attP) attP.textContent = '(—)';
+    if (ringN) ringN.textContent = '—';
+    if (ringP) ringP.textContent = '(—)';
+    renderChromaBarSet('cr-abs-bars', null, false, -1);
+    renderChromaBarSet('cr-circ-bars', null, true, 0);
+    return;
+  }
+
+  const domNote = ch.dominant_note || '—';
+  const domIdx = ch.dominant_index ?? CHROMA_NOTE_NAMES_UI.indexOf(domNote);
+  const purityPct = (ch.purity ? (ch.purity * 100).toFixed(1) + '%' : '—');
+
+  if (domEl) domEl.textContent = domNote;
+  if (purEl) purEl.textContent = purityPct;
+  if (stEl) {
+    stEl.textContent = label || 'OK';
+    stEl.style.color = 'var(--cyan)';
+  }
+  if (winEl) winEl.textContent = (ch.analysis_window_ms ? ch.analysis_window_ms.toFixed(1) + ' ms' : '50.0 ms');
+  if (attN) attN.textContent = ch.dominant_note_attack || '—';
+  if (attP) attP.textContent = ch.purity_attack ? '(' + (ch.purity_attack * 100).toFixed(1) + '%)' : '(—)';
+  if (ringN) ringN.textContent = ch.dominant_note_ringdown || '—';
+  if (ringP) ringP.textContent = ch.purity_ringdown ? '(' + (ch.purity_ringdown * 100).toFixed(1) + '%)' : '(—)';
+
+  renderChromaBarSet('cr-abs-bars', ch.chroma_12, false, domIdx);
+  renderChromaBarSet('cr-circ-bars', ch.chroma_circular_12, true, 0);
+}
+
+async function loadChromaSessionData(sessionId){
+  try {
+    const res = await fetch('/chroma/session_summary?session=' + sessionId);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const s = json.session || (json.sessions && json.sessions[sessionId]);
+    if (!s) return;
+    renderChromaCompareBars('cr-comp-bars', s.mean_circular_a, s.mean_circular_c);
+    const statsEl = $('cr-session-stats');
+    if (statsEl) {
+      statsEl.innerHTML = '<b>' + s.label + '</b><br>' +
+        '• Group A (Pristine, N=' + s.n_group_a + '): Mean Purity <b>' + (s.mean_purity_a*100).toFixed(1) + '%</b> · Mean Peak ' + s.mean_freq_hz_a + ' Hz<br>' +
+        '• Group C (Delam, N=' + s.n_group_c + '): Mean Purity <b>' + (s.mean_purity_c*100).toFixed(1) + '%</b> · Mean Peak ' + s.mean_freq_hz_c + ' Hz<br>' +
+        '<span style="color:var(--amber); font-size:7.5px">Notice: Bin 0 energy is highest for both; Group A exhibits narrower modal bandwidth. Cross-session shift collapses generalization.</span>';
+    }
+  } catch (err) {
+    const statsEl = $('cr-session-stats');
+    if (statsEl) statsEl.textContent = 'Benchmark data offline: ' + err.message;
+  }
+}
+
+function initChromaPanel(){
+  const tabs = document.querySelectorAll('#chroma-tab-seg button');
+  tabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabs.forEach(b => b.classList.toggle('on', b === btn));
+      const t = btn.dataset.ctab;
+      $('chroma-tab-live').style.display = (t === 'live' ? 'block' : 'none');
+      $('chroma-tab-compare').style.display = (t === 'compare' ? 'block' : 'none');
+      $('chroma-tab-audit').style.display = (t === 'audit' ? 'block' : 'none');
+      if (t === 'compare') {
+        const selVal = $('cr-session-sel')?.value || '2612';
+        loadChromaSessionData(selVal);
+      }
+    });
+  });
+
+  $('cr-session-sel')?.addEventListener('change', e => {
+    loadChromaSessionData(e.target.value);
+  });
+
+  $('bt-showhide-chroma')?.addEventListener('click', () => {
+    const p = $('panel-chroma');
+    if (!p) return;
+    const body = p.querySelector('.p-body');
+    if (body) {
+      const isHidden = body.style.display === 'none';
+      body.style.display = isHidden ? 'block' : 'none';
+    }
+  });
+
+  updateChromaUI(null, 'NO TARGET');
+}
+
+initDspTabs();
+initDspFileActions();
+initDspAI();
+initChromaPanel();
 synth();
 for(let i=0;i<N_MAX;i++){          // bloom-in from the origin
   pX[i]=(rnd()-0.5)*0.25; pY[i]=(rnd()-0.5)*0.25; pZ[i]=(rnd()-0.5)*0.25;
@@ -3455,14 +4013,14 @@ legendSync(); formulaSync(); updateInspector(); drawSPlane();
   if(Q.get('mode')==='2d') setMode(false);
   if(Q.has('settle')){cam.dist.v=DIST0; window.__ff(clamp(+Q.get('settle')||3.5,0.5,10))}
   if(Q.has('lock')){lockedId=clamp(+Q.get('lock')|0,0,N-1); updateInspector(); drawSPlane()}
-  /* live link boot — ?ws=ws://host:port/path overrides, ?wsoff disables */
-  if(Q.has('wsoff')){WS_URLS=[]; wsChip('off','SIM · WS DISABLED')}
-  else{
-    const o=Q.get('ws');
-    WS_URLS=o?[o]:['ws://localhost:8000/ws','ws://localhost:8000/ws/dsp','ws://localhost:8000/ws/dsp-stream'];
-    wsConnect();
-  }
-})();
+/* live link boot — ?ws=ws://host:port/path overrides, ?wsoff disables */
+    if(Q.has('wsoff')){WS_URLS=[]; wsChip('off','SIM · WS DISABLED')}
+    else{
+      const o=Q.get('ws');
+      WS_URLS=o?[o]:['ws://localhost:8765/ws/dsp-stream','ws://localhost:8765/ws','ws://localhost:8000/ws','ws://localhost:8000/ws/dsp','ws://localhost:8000/ws/dsp-stream'];
+      wsConnect();
+    }
+  })();
 requestAnimationFrame(frame);
 </script>
 </body>
