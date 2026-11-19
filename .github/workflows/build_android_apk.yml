@@ -1,0 +1,42 @@
+name: Build C85 Android APK
+
+on:
+  push:
+    paths:
+      - 'android_c85/**'
+      - '.github/workflows/build_android_apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.6'
+
+      - name: Build Debug APK
+        working-directory: android_c85
+        run: |
+          gradle assembleDebug --stacktrace
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: C85-DSP-Arena-Debug-APK
+          path: android_c85/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
